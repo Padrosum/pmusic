@@ -37,13 +37,13 @@ ppd install pmusic
 ### Go ile
 
 ```sh
-go install github.com/padros/pmusic@latest
+go install github.com/Padrosum/pmusic@latest
 ```
 
 ### Kaynaktan derleme
 
 ```sh
-git clone https://github.com/padros/pmusic
+git clone https://github.com/Padrosum/pmusic
 cd pmusic
 go build -o pmusic .
 ```
