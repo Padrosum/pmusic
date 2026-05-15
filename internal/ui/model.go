@@ -36,6 +36,7 @@ type Model struct {
 	nowPlaying  *pfs.Track
 	nowFolder   int
 	nowTrack    int
+	loop        bool
 
 	watcher *watcher.Watcher
 	rootDir string
@@ -95,11 +96,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.watcher != nil && m.watcher.Changed() {
 			m.rescan()
 		}
-		// auto-advance when a track ends naturally
+		// auto-advance (or loop) when a track ends naturally
 		if m.nowPlaying != nil && m.player.State() == player.Stopped {
-			cmd := m.playNext()
+			var cmd tea.Cmd
+			if m.loop {
+				cmd = m.replayCurrent()
+			} else {
+				cmd = m.playNext()
+			}
 			if cmd == nil {
-				// end of library
 				m.nowPlaying = nil
 			}
 			return m, tea.Batch(tickCmd(), cmd)
@@ -142,6 +147,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, keys.Prev):
 			return m, m.playPrev()
+
+		case key.Matches(msg, keys.Loop):
+			m.loop = !m.loop
 		}
 	}
 	return m, nil
@@ -257,6 +265,25 @@ func (m *Model) playPrev() tea.Cmd {
 	}
 	m.nowFolder = fi
 	m.nowTrack = ti
+	t := m.folders[fi].Tracks[ti]
+	m.nowPlaying = &t
+	m.player.MarkPending()
+	path := t.Path
+	return func() tea.Msg {
+		m.player.Play(path)
+		return tickMsg(time.Now())
+	}
+}
+
+func (m *Model) replayCurrent() tea.Cmd {
+	if m.nowPlaying == nil {
+		return nil
+	}
+	fi := m.nowFolder
+	ti := m.nowTrack
+	if fi >= len(m.folders) || ti >= len(m.folders[fi].Tracks) {
+		return nil
+	}
 	t := m.folders[fi].Tracks[ti]
 	m.nowPlaying = &t
 	m.player.MarkPending()
@@ -392,7 +419,11 @@ func (m *Model) renderBottom(w int) string {
 	if m.nowPlaying != nil {
 		icon := playIcon(m.player.State())
 		stateStyle := stateLabelStyle(m.player.State())
-		label := stateStyle.Render(icon + " " + m.nowPlaying.Name)
+		loopMark := ""
+		if m.loop {
+			loopMark = stylePlaying.Render(" ↺")
+		}
+		label := stateStyle.Render(icon+" "+m.nowPlaying.Name) + loopMark
 		ratio, elapsed, total := m.player.Progress()
 		timeStr := fmt.Sprintf(" %s / %s", fmtDur(elapsed), fmtDur(total))
 		sb.WriteString(label + styleDim.Render(timeStr) + "\n")
@@ -403,11 +434,16 @@ func (m *Model) renderBottom(w int) string {
 	}
 
 	// Key hints
-	hints := []string{"j/k:move", "h/l:panel", "enter:play", "spc:pause", "n/p:next/prev", "q:quit"}
+	hints := []string{"j/k:move", "h/l:panel", "enter:play", "spc:pause", "n/p:next/prev", "r:loop", "q:quit"}
 	var hintParts []string
 	for _, h := range hints {
 		parts := strings.SplitN(h, ":", 2)
-		hintParts = append(hintParts, styleKey.Render(parts[0])+styleDim.Render(":"+parts[1]))
+		label := parts[1]
+		if parts[0] == "r" && m.loop {
+			hintParts = append(hintParts, styleKey.Render(parts[0])+stylePlaying.Render(":"+label+"[on]"))
+		} else {
+			hintParts = append(hintParts, styleKey.Render(parts[0])+styleDim.Render(":"+label))
+		}
 	}
 	sb.WriteString(styleDim.Render("  " + strings.Join(hintParts, "  ")))
 

@@ -56,7 +56,6 @@ func (p *Player) Play(path string) error {
 	oldStream := p.streamer
 	p.ctrl = nil
 	p.streamer = nil
-	p.state = Stopped
 	p.mu.Unlock()
 
 	if oldCtrl != nil {

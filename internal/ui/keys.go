@@ -11,6 +11,7 @@ type keyMap struct {
 	Space    key.Binding
 	Next     key.Binding
 	Prev     key.Binding
+	Loop     key.Binding
 	VolUp    key.Binding
 	VolDown  key.Binding
 	Quit     key.Binding
@@ -25,6 +26,7 @@ var keys = keyMap{
 	Space:   key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "pause")),
 	Next:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "next")),
 	Prev:    key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "prev")),
+	Loop:    key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "loop")),
 	VolUp:   key.NewBinding(key.WithKeys("+", "="), key.WithHelp("+", "vol+")),
 	VolDown: key.NewBinding(key.WithKeys("-"), key.WithHelp("-", "vol-")),
 	Quit:    key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
