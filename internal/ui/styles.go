@@ -1,84 +1,66 @@
 package ui
 
-import "github.com/charmbracelet/lipgloss"
-
-// Nord palette
-var (
-	nord0  = lipgloss.Color("#2E3440")
-	nord1  = lipgloss.Color("#3B4252")
-	nord2  = lipgloss.Color("#434C5E")
-	nord3  = lipgloss.Color("#4C566A")
-	nord4  = lipgloss.Color("#D8DEE9")
-	nord5  = lipgloss.Color("#E5E9F0")
-	nord6  = lipgloss.Color("#ECEFF4")
-	nord7  = lipgloss.Color("#8FBCBB")
-	nord8  = lipgloss.Color("#88C0D0")
-	nord9  = lipgloss.Color("#81A1C1")
-	nord10 = lipgloss.Color("#5E81AC")
-	nord11 = lipgloss.Color("#BF616A")
-	nord13 = lipgloss.Color("#EBCB8B")
-	nord14 = lipgloss.Color("#A3BE8C")
+import (
+	"github.com/charmbracelet/lipgloss"
+	luaeng "github.com/padros/pmusic/internal/lua"
 )
 
 var (
-	stylePanel = lipgloss.NewStyle().
-			Background(nord0).
-			Foreground(nord4)
-
-	stylePanelBorder = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(nord3).
-				Background(nord0)
-
-	stylePanelActive = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(nord8).
-				Background(nord0)
-
-	styleTitle = lipgloss.NewStyle().
-			Foreground(nord8).
-			Bold(true).
-			Padding(0, 1)
-
-	styleSelected = lipgloss.NewStyle().
-			Background(nord2).
-			Foreground(nord6).
-			Bold(true)
-
-	styleNormal = lipgloss.NewStyle().
-			Foreground(nord4)
-
-	styleDim = lipgloss.NewStyle().
-			Foreground(nord3)
-
-	styleNowPlaying = lipgloss.NewStyle().
-			Foreground(nord14).
-			Bold(true)
-
-	styleProgress = lipgloss.NewStyle().
-			Foreground(nord8)
-
-	styleProgressFill = lipgloss.NewStyle().
-				Foreground(nord8)
-
-	styleProgressEmpty = lipgloss.NewStyle().
-				Foreground(nord3)
-
-	stylePlaying = lipgloss.NewStyle().
-			Foreground(nord14)
-
-	stylePaused = lipgloss.NewStyle().
-			Foreground(nord13)
-
-	styleStopped = lipgloss.NewStyle().
-			Foreground(nord3)
-
-	styleKey = lipgloss.NewStyle().
-			Foreground(nord9).
-			Bold(true)
-
-	styleStatusBar = lipgloss.NewStyle().
-			Background(nord1).
-			Foreground(nord4).
-			Padding(0, 1)
+	stylePanel         lipgloss.Style
+	stylePanelBorder   lipgloss.Style
+	stylePanelActive   lipgloss.Style
+	styleTitle         lipgloss.Style
+	styleSelected      lipgloss.Style
+	styleNormal        lipgloss.Style
+	styleDim           lipgloss.Style
+	styleNowPlaying    lipgloss.Style
+	styleProgress      lipgloss.Style
+	styleProgressFill  lipgloss.Style
+	styleProgressEmpty lipgloss.Style
+	stylePlaying       lipgloss.Style
+	stylePaused        lipgloss.Style
+	styleStopped       lipgloss.Style
+	styleKey           lipgloss.Style
+	styleStatusBar     lipgloss.Style
+	styleNotify        lipgloss.Style
 )
+
+func init() {
+	applyTheme(luaeng.DefaultTheme())
+}
+
+// applyTheme regenerates all package-level style vars from the given theme.
+// Called on startup and after each Lua reload.
+func applyTheme(t luaeng.Theme) {
+	bg := lipgloss.Color(t.PanelBg)
+	accent := lipgloss.Color(t.Accent)
+	dim := lipgloss.Color(t.Dim)
+	sel := lipgloss.Color(t.SelectedBg)
+	np := lipgloss.Color(t.NowPlaying)
+	bdr := lipgloss.Color(t.Border)
+	bdrA := lipgloss.Color(t.BorderActive)
+	ttl := lipgloss.Color(t.Title)
+	sbg := lipgloss.Color(t.StatusBg)
+	k := lipgloss.Color(t.Key)
+	fg := lipgloss.Color("#D8DEE9")
+	fg2 := lipgloss.Color("#ECEFF4")
+	amber := lipgloss.Color("#EBCB8B")
+
+	stylePanel = lipgloss.NewStyle().Background(bg).Foreground(fg)
+	stylePanelBorder = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(bdr).Background(bg)
+	stylePanelActive = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(bdrA).Background(bg)
+	styleTitle = lipgloss.NewStyle().Foreground(ttl).Bold(true).Padding(0, 1)
+	styleSelected = lipgloss.NewStyle().Background(sel).Foreground(fg2).Bold(true)
+	styleNormal = lipgloss.NewStyle().Foreground(fg)
+	styleDim = lipgloss.NewStyle().Foreground(dim)
+	styleNowPlaying = lipgloss.NewStyle().Foreground(np).Bold(true)
+	styleProgress = lipgloss.NewStyle().Foreground(accent)
+	styleProgressFill = lipgloss.NewStyle().Foreground(accent)
+	styleProgressEmpty = lipgloss.NewStyle().Foreground(dim)
+	stylePlaying = lipgloss.NewStyle().Foreground(np)
+	stylePaused = lipgloss.NewStyle().Foreground(amber)
+	styleStopped = lipgloss.NewStyle().Foreground(dim)
+	styleKey = lipgloss.NewStyle().Foreground(k).Bold(true)
+	styleStatusBar = lipgloss.NewStyle().Background(sbg).Foreground(fg).Padding(0, 1)
+	styleNotify = lipgloss.NewStyle().Foreground(amber).Bold(true)
+}

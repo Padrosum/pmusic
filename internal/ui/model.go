@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	pfs "github.com/padros/pmusic/internal/fs"
+	luaeng "github.com/padros/pmusic/internal/lua"
 	"github.com/padros/pmusic/internal/player"
 	"github.com/padros/pmusic/internal/watcher"
 )
@@ -22,6 +23,9 @@ const (
 
 type tickMsg time.Time
 
+// luaReloadedMsg is sent back to the Update loop after a Lua hot-reload attempt.
+type luaReloadedMsg struct{ err error }
+
 type Model struct {
 	width, height int
 	focused       panel
@@ -32,14 +36,24 @@ type Model struct {
 	folderIdx int
 	trackIdx  int
 
-	player      *player.Player
-	nowPlaying  *pfs.Track
-	nowFolder   int
-	nowTrack    int
-	loop        bool
+	player     *player.Player
+	nowPlaying *pfs.Track
+	nowFolder  int
+	nowTrack   int
+	loop       bool
 
 	watcher *watcher.Watcher
 	rootDir string
+
+	luaEngine *luaeng.Engine
+
+	// Lua hook state tracking
+	prevPlayingPath string
+	prevState       player.State
+
+	// Notification overlay (shown in status bar, expires after a short time)
+	notification string
+	notifyUntil  time.Time
 }
 
 func New(rootDir string) (*Model, error) {
@@ -68,6 +82,14 @@ func New(rootDir string) (*Model, error) {
 		m.watcher = w
 	}
 
+	eng := luaeng.New()
+	if err := eng.Load(); err != nil {
+		m.notification = "lua: " + err.Error()
+		m.notifyUntil = time.Now().Add(10 * time.Second)
+	}
+	m.luaEngine = eng
+	applyTheme(eng.Theme())
+
 	return m, nil
 }
 
@@ -92,11 +114,54 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		return m, nil
 
+	case luaReloadedMsg:
+		if msg.err != nil {
+			m.notification = "lua error: " + msg.err.Error()
+		} else {
+			m.notification = "lua reloaded"
+		}
+		m.notifyUntil = time.Now().Add(5 * time.Second)
+		applyTheme(m.luaEngine.Theme())
+		return m, nil
+
 	case tickMsg:
+		// Pop any pending Lua notifications.
+		if n := m.luaEngine.PopNotification(); n != "" {
+			m.notification = n
+			m.notifyUntil = time.Now().Add(5 * time.Second)
+		}
+
+		// Rescan library if filesystem changed.
 		if m.watcher != nil && m.watcher.Changed() {
 			m.rescan()
 		}
-		// auto-advance (or loop) when a track ends naturally
+
+		// Fire on_song_change hook when the playing track changes.
+		if m.nowPlaying != nil && m.nowPlaying.Path != m.prevPlayingPath {
+			m.prevPlayingPath = m.nowPlaying.Path
+			folder := ""
+			if m.nowFolder < len(m.folders) {
+				folder = m.folders[m.nowFolder].Name
+			}
+			m.luaEngine.CallOnSongChange(m.nowPlaying.Name, m.nowPlaying.Path, folder)
+		}
+
+		// Fire on_state_change hook when play/pause/stop state transitions.
+		if st := m.player.State(); st != m.prevState {
+			m.prevState = st
+			var stateStr string
+			switch st {
+			case player.Playing:
+				stateStr = "playing"
+			case player.Paused:
+				stateStr = "paused"
+			default:
+				stateStr = "stopped"
+			}
+			m.luaEngine.CallOnStateChange(stateStr)
+		}
+
+		// Auto-advance (or loop) when a track ends naturally.
 		if m.nowPlaying != nil && m.player.State() == player.Stopped {
 			var cmd tea.Cmd
 			if m.loop {
@@ -112,13 +177,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tickCmd()
 
 	case tea.KeyMsg:
+		// Check Lua-registered custom keymaps before built-in bindings.
+		if action := m.luaEngine.Keymap(msg.String()); action != "" {
+			if cmd := m.dispatchAction(action); cmd != nil {
+				return m, cmd
+			}
+			return m, nil
+		}
+
 		switch {
 		case key.Matches(msg, keys.Quit):
 			m.player.Stop()
 			if m.watcher != nil {
 				m.watcher.Close()
 			}
+			m.luaEngine.Close()
 			return m, tea.Quit
+
+		case key.Matches(msg, keys.ReloadLua):
+			return m, m.reloadLuaCmd()
 
 		case key.Matches(msg, keys.Left):
 			m.focused = panelFolders
@@ -153,6 +230,42 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// dispatchAction executes a named action — used by Lua keymaps.
+func (m *Model) dispatchAction(action string) tea.Cmd {
+	switch action {
+	case "toggle_pause":
+		m.player.TogglePause()
+	case "next":
+		return m.playNext()
+	case "prev":
+		return m.playPrev()
+	case "loop":
+		m.loop = !m.loop
+	case "focus_folders":
+		m.focused = panelFolders
+	case "focus_tracks":
+		m.focused = panelTracks
+	case "reload_lua":
+		return m.reloadLuaCmd()
+	case "quit":
+		m.player.Stop()
+		if m.watcher != nil {
+			m.watcher.Close()
+		}
+		m.luaEngine.Close()
+		return tea.Quit
+	}
+	return nil
+}
+
+// reloadLuaCmd returns a Cmd that reloads the Lua VM in a background goroutine.
+func (m *Model) reloadLuaCmd() tea.Cmd {
+	eng := m.luaEngine
+	return func() tea.Msg {
+		return luaReloadedMsg{err: eng.Load()}
+	}
 }
 
 func (m *Model) moveUp() {
@@ -415,8 +528,11 @@ func (m *Model) renderTracks(w, h int) string {
 func (m *Model) renderBottom(w int) string {
 	var sb strings.Builder
 
-	// Now playing line
-	if m.nowPlaying != nil {
+	// Notification takes precedence over now-playing info for its duration.
+	if m.notification != "" && time.Now().Before(m.notifyUntil) {
+		sb.WriteString(styleNotify.Render("  ⦿ "+m.notification) + "\n")
+		sb.WriteString(renderProgress(w-4, 0) + "\n")
+	} else if m.nowPlaying != nil {
 		icon := playIcon(m.player.State())
 		stateStyle := stateLabelStyle(m.player.State())
 		loopMark := ""
@@ -434,7 +550,7 @@ func (m *Model) renderBottom(w int) string {
 	}
 
 	// Key hints
-	hints := []string{"j/k:move", "h/l:panel", "enter:play", "spc:pause", "n/p:next/prev", "r:loop", "q:quit"}
+	hints := []string{"j/k:move", "h/l:panel", "enter:play", "spc:pause", "n/p:next/prev", "r:loop", "^r:lua", "q:quit"}
 	var hintParts []string
 	for _, h := range hints {
 		parts := strings.SplitN(h, ":", 2)

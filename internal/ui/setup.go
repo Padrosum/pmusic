@@ -75,8 +75,8 @@ func (s SetupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (s SetupModel) View() string {
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(nord8).
-		Background(nord0).
+		BorderForeground(lipgloss.Color("#88C0D0")).
+		Background(lipgloss.Color("#2E3440")).
 		Padding(1, 3).
 		Width(60)
 
@@ -85,7 +85,7 @@ func (s SetupModel) View() string {
 
 	errLine := ""
 	if s.err != "" {
-		errLine = "\n" + lipgloss.NewStyle().Foreground(nord11).Render(s.err)
+		errLine = "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#BF616A")).Render(s.err)
 	}
 
 	hint := "\n\n" + styleDim.Render("  enter: confirm   esc: quit")
@@ -97,5 +97,5 @@ func (s SetupModel) View() string {
 		return dialog
 	}
 	return lipgloss.Place(s.w, s.h, lipgloss.Center, lipgloss.Center, dialog,
-		lipgloss.WithWhitespaceBackground(nord0))
+		lipgloss.WithWhitespaceBackground(lipgloss.Color("#2E3440")))
 }
