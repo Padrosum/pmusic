@@ -11,9 +11,14 @@
 
 local log_file = PMUSIC_LOG or (os.getenv("HOME") .. "/.local/share/pmusic/plays.log")
 
+-- Single-quote a path for safe use in a shell command.
+local function shell_quote(s)
+    return "'" .. s:gsub("'", "'\\''") .. "'"
+end
+
 -- Create parent directory if it doesn't exist.
 local dir = log_file:match("(.+)/[^/]+$")
-if dir then os.execute("mkdir -p " .. dir) end
+if dir then os.execute("mkdir -p " .. shell_quote(dir)) end
 
 pmusic.on_song_change(function(track)
     local f = io.open(log_file, "a")

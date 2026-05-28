@@ -26,19 +26,24 @@ type Folder struct {
 }
 
 func Scan(root string) (*Folder, error) {
-	info, err := os.Stat(root)
+	// Resolve symlinks on the root so the visited set works correctly.
+	real, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(real)
 	if err != nil {
 		return nil, err
 	}
 	folder := &Folder{
 		Name: info.Name(),
-		Path: root,
+		Path: real,
 	}
-	scanDir(folder)
+	scanDir(folder, map[string]bool{real: true})
 	return folder, nil
 }
 
-func scanDir(f *Folder) {
+func scanDir(f *Folder, visited map[string]bool) {
 	entries, err := os.ReadDir(f.Path)
 	if err != nil {
 		return
@@ -49,8 +54,14 @@ func scanDir(f *Folder) {
 		}
 		full := filepath.Join(f.Path, e.Name())
 		if e.IsDir() {
+			// Resolve symlinks to detect cycles before recursing.
+			real, err := filepath.EvalSymlinks(full)
+			if err != nil || visited[real] {
+				continue
+			}
+			visited[real] = true
 			child := &Folder{Name: e.Name(), Path: full}
-			scanDir(child)
+			scanDir(child, visited)
 			if child.hasContent() {
 				f.Children = append(f.Children, child)
 			}

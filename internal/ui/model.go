@@ -146,8 +146,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.luaEngine.CallOnSongChange(m.nowPlaying.Name, m.nowPlaying.Path, folder)
 		}
 
+		// Cache state once so both the hook check and auto-advance use the same snapshot.
+		st := m.player.State()
+
 		// Fire on_state_change hook when play/pause/stop state transitions.
-		if st := m.player.State(); st != m.prevState {
+		if st != m.prevState {
 			m.prevState = st
 			var stateStr string
 			switch st {
@@ -162,7 +165,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Auto-advance (or loop) when a track ends naturally.
-		if m.nowPlaying != nil && m.player.State() == player.Stopped {
+		if m.nowPlaying != nil && st == player.Stopped {
 			var cmd tea.Cmd
 			if m.loop {
 				cmd = m.replayCurrent()
@@ -410,6 +413,8 @@ func (m *Model) replayCurrent() tea.Cmd {
 func (m *Model) rescan() {
 	root, err := pfs.Scan(m.rootDir)
 	if err != nil {
+		m.notification = "rescan: " + err.Error()
+		m.notifyUntil = time.Now().Add(5 * time.Second)
 		return
 	}
 	m.root = root

@@ -16,7 +16,7 @@
 
 -- ── Panel navigation ──────────────────────────────────────────────────────────
 -- pmusic.register_keymap("tab",   "focus_tracks")
--- pmusic.register_keymap("S-tab", "focus_folders")  -- shift+tab (terminal may send different string)
+-- pmusic.register_keymap("backtab", "focus_folders")  -- shift+tab (BubbleTea sends "backtab")
 
 -- ── Loop ──────────────────────────────────────────────────────────────────────
 -- pmusic.register_keymap("L", "loop")   -- capital L → toggle loop

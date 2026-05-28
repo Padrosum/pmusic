@@ -292,8 +292,14 @@ end)
 -- plugins/my-plugin.lua
 local data_file = os.getenv("HOME") .. "/.local/share/pmusic/my-data.txt"
 
--- Ensure the directory exists before writing
-os.execute("mkdir -p " .. data_file:match("(.+)/[^/]+$"))
+-- Single-quote a path so spaces and special characters are safe in shell commands.
+local function shell_quote(s)
+    return "'" .. s:gsub("'", "'\\''") .. "'"
+end
+
+-- Ensure the directory exists before writing.
+local dir = data_file:match("(.+)/[^/]+$")
+if dir then os.execute("mkdir -p " .. shell_quote(dir)) end
 
 pmusic.on_song_change(function(track)
     local f = io.open(data_file, "a")
@@ -310,7 +316,7 @@ end)
 | Only **one** `on_song_change` callback is active at a time. | Last call to `on_song_change` wins. If multiple plugins register, chain them manually. |
 | Only **one** `on_state_change` callback is active at a time. | Same rule. |
 | Hook callbacks **cannot return values** to control pmusic. | Hooks are fire-and-forget. |
-| `pmusic.set_theme` and `pmusic.register_keymap` have **no effect inside hook callbacks**. | They are only applied during `init.lua` execution. Call them at top level, not inside `on_song_change`. |
+| `pmusic.set_theme` and `pmusic.register_keymap` called inside hook callbacks **modify internal state immediately but the UI does not re-render until the next tick (≤ 250 ms)**. | For a live theme switch, trigger `reload_lua` action instead; calling `set_theme` from a hook is valid but unusual. |
 | No network libraries are included. | gopher-lua ships without LuaSocket. Use `os.execute("curl ...")` for HTTP if needed. |
 | `require` only searches `~/.config/pmusic/lua/`. | Standard `require "socket"` / `require "json"` will fail unless you provide the file. |
 
@@ -699,8 +705,14 @@ end)
 -- plugins/kendi-pluginim.lua
 local veri_dosyasi = os.getenv("HOME") .. "/.local/share/pmusic/verim.txt"
 
--- Yazmadan önce dizinin var olduğundan emin ol
-os.execute("mkdir -p " .. veri_dosyasi:match("(.+)/[^/]+$"))
+-- Kabuk komutlarında güvenli kullanım için path'i single-quote ile koru.
+local function shell_quote(s)
+    return "'" .. s:gsub("'", "'\\''") .. "'"
+end
+
+-- Yazmadan önce dizinin var olduğundan emin ol.
+local dir = veri_dosyasi:match("(.+)/[^/]+$")
+if dir then os.execute("mkdir -p " .. shell_quote(dir)) end
 
 pmusic.on_song_change(function(track)
     local f = io.open(veri_dosyasi, "a")
@@ -717,7 +729,7 @@ end)
 | Yalnızca **tek** bir `on_song_change` callback'i aktif olabilir. | Son `on_song_change` çağrısı öncekinin yerini alır. Birden fazla plugin kayıt yapmak istiyorsa bunları manuel olarak zincirle. |
 | Yalnızca **tek** bir `on_state_change` callback'i aktif olabilir. | Aynı kural. |
 | Hook callback'leri pmusic'i kontrol etmek için **değer döndüremez**. | Hook'lar fire-and-forget (çağrı ve unut) şeklinde çalışır. |
-| `pmusic.set_theme` ve `pmusic.register_keymap`'in hook callback'leri içindeki **etkisi yoktur**. | Bunlar yalnızca `init.lua` çalıştırılırken uygulanır. Üst düzeyde çağır, `on_song_change` içinde değil. |
+| `pmusic.set_theme` ve `pmusic.register_keymap` hook callback'lerinden çağrıldığında **iç durumu anında değiştirir; ancak UI bir sonraki tick'e (≤ 250 ms) kadar yeniden render edilmez**. | Canlı tema geçişi için `reload_lua` eylemini tetikle; hook içinde `set_theme` çağırmak geçerlidir ancak alışılmadık bir kullanımdır. |
 | Ağ kütüphanesi dahil değildir. | gopher-lua, LuaSocket olmadan gelir. HTTP için gerekirse `os.execute("curl ...")` kullan. |
 | `require` yalnızca `~/.config/pmusic/lua/`'da arar. | `require "socket"` / `require "json"` dosyayı kendin sağlamadıkça başarısız olur. |
 

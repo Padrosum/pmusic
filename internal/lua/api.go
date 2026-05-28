@@ -69,12 +69,29 @@ func (e *Engine) luaGetTheme(L *glua.LState) int {
 	return 1
 }
 
-// pmusic.register_keymap("g", "focus_folders")
+// validActions is the whitelist for register_keymap. Unknown names are rejected
+// with a pmusic.notify() message so the user can catch typos immediately.
+var validActions = map[string]bool{
+	"toggle_pause":  true,
+	"next":          true,
+	"prev":          true,
+	"loop":          true,
+	"focus_folders": true,
+	"focus_tracks":  true,
+	"reload_lua":    true,
+	"quit":          true,
+}
+
+// pmusic.register_keymap("f", "next")
 // Available actions: toggle_pause, next, prev, loop,
 //                    focus_folders, focus_tracks, reload_lua, quit
 func (e *Engine) luaRegisterKeymap(L *glua.LState) int {
 	key := L.CheckString(1)
 	action := L.CheckString(2)
+	if !validActions[action] {
+		e.pendingNotify = "unknown keymap action: " + action
+		return 0
+	}
 	e.keymaps[key] = action
 	return 0
 }
