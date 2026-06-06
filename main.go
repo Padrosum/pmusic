@@ -58,7 +58,7 @@ func runPlayer(dir string) {
 		fatalf("%v", err)
 	}
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fatalf("%v", err)
 	}

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -26,6 +27,18 @@ type tickMsg time.Time
 // luaReloadedMsg is sent back to the Update loop after a Lua hot-reload attempt.
 type luaReloadedMsg struct{ err error }
 
+// mascot animation constants — each frame line is rendered at fixed width via lipgloss.
+const mascotW = 8
+
+var mascotPlaying = [4][3]string{
+	{`/\_/\`, `(^.^)`, `>♪ < `},
+	{`/\_/\`, `(^o^)`, `>♫ < `},
+	{`/\_/\`, `(>.~)`, `>♪ < `},
+	{`/\_/\`, `(^-^)`, `>♫ < `},
+}
+var mascotPaused  = [3]string{`/\_/\`, `(-_-)`, `~♩~ `}
+var mascotStopped = [3]string{`/\_/\`, `(z.z)`, ` zzz`}
+
 type Model struct {
 	width, height int
 	focused       panel
@@ -41,6 +54,8 @@ type Model struct {
 	nowFolder  int
 	nowTrack   int
 	loop       bool
+
+	mascotFrame int
 
 	watcher *watcher.Watcher
 	rootDir string
@@ -125,6 +140,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
+		// Advance mascot animation frame while playing.
+		if m.player.State() == player.Playing {
+			m.mascotFrame = (m.mascotFrame + 1) % 4
+		}
+
 		// Pop any pending Lua notifications.
 		if n := m.luaEngine.PopNotification(); n != "" {
 			m.notification = n
@@ -179,6 +199,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tickCmd()
 
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
+
 	case tea.KeyMsg:
 		// Check Lua-registered custom keymaps before built-in bindings.
 		if action := m.luaEngine.Keymap(msg.String()); action != "" {
@@ -230,6 +253,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, keys.Loop):
 			m.loop = !m.loop
+
+		case key.Matches(msg, keys.VolUp):
+			m.player.SetVolume(m.player.Volume() + 0.1)
+
+		case key.Matches(msg, keys.VolDown):
+			m.player.SetVolume(m.player.Volume() - 0.1)
+
+		case key.Matches(msg, keys.SeekBack5):
+			m.player.Seek(-5 * time.Second)
+
+		case key.Matches(msg, keys.SeekFwd5):
+			m.player.Seek(5 * time.Second)
+
+		case key.Matches(msg, keys.SeekBack30):
+			m.player.Seek(-30 * time.Second)
+
+		case key.Matches(msg, keys.SeekFwd30):
+			m.player.Seek(30 * time.Second)
 		}
 	}
 	return m, nil
@@ -259,6 +300,18 @@ func (m *Model) dispatchAction(action string) tea.Cmd {
 		}
 		m.luaEngine.Close()
 		return tea.Quit
+	case "vol_up":
+		m.player.SetVolume(m.player.Volume() + 0.1)
+	case "vol_down":
+		m.player.SetVolume(m.player.Volume() - 0.1)
+	case "seek_back5":
+		m.player.Seek(-5 * time.Second)
+	case "seek_fwd5":
+		m.player.Seek(5 * time.Second)
+	case "seek_back30":
+		m.player.Seek(-30 * time.Second)
+	case "seek_fwd30":
+		m.player.Seek(30 * time.Second)
 	}
 	return nil
 }
@@ -424,6 +477,74 @@ func (m *Model) rescan() {
 	}
 }
 
+// handleMouse processes mouse events: scroll to navigate, left click to select/play.
+func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		m.moveUp()
+		return m, nil
+	case tea.MouseButtonWheelDown:
+		m.moveDown()
+		return m, nil
+	}
+
+	if msg.Button != tea.MouseButtonLeft || msg.Action != tea.MouseActionPress {
+		return m, nil
+	}
+
+	col, row := msg.X, msg.Y
+	leftW := m.width / 3
+	// mainH = m.height - bottomH(4) - 2; panel content rows start at screen row 2.
+	mainH := m.height - 4 - 2
+	innerH := mainH - 2
+	visibleRows := innerH - 1 // title row consumed
+
+	if row <= 0 || row > mainH {
+		return m, nil
+	}
+
+	if col < leftW {
+		// Left panel (folders): content begins at screen row 2.
+		itemRow := row - 2
+		if itemRow < 0 {
+			m.focused = panelFolders
+			return m, nil
+		}
+		offset := scrollOffset(m.folderIdx, visibleRows)
+		idx := offset + itemRow
+		if idx >= 0 && idx < len(m.folders) {
+			m.folderIdx = idx
+			m.trackIdx = 0
+			m.focused = panelFolders
+		}
+	} else {
+		// Right panel (tracks).
+		itemRow := row - 2
+		if itemRow < 0 {
+			m.focused = panelTracks
+			return m, nil
+		}
+		offset := scrollOffset(m.trackIdx, visibleRows)
+		idx := offset + itemRow
+		tracks := m.currentTracks()
+		if idx >= 0 && idx < len(tracks) {
+			m.trackIdx = idx
+			m.focused = panelTracks
+			t := tracks[idx]
+			m.nowPlaying = &t
+			m.nowFolder = m.folderIdx
+			m.nowTrack = idx
+			m.player.MarkPending()
+			path := t.Path
+			return m, func() tea.Msg {
+				m.player.Play(path)
+				return tickMsg(time.Now())
+			}
+		}
+	}
+	return m, nil
+}
+
 func (m *Model) View() string {
 	if m.width == 0 {
 		return "loading..."
@@ -482,41 +603,75 @@ func (m *Model) renderFolders(w, h int) string {
 	return border.Width(w - 2).Height(h - 2).Render(content)
 }
 
+// mascotLines returns the three display lines for the current mascot state.
+func (m *Model) mascotLines() [3]string {
+	switch m.player.State() {
+	case player.Playing:
+		return mascotPlaying[m.mascotFrame%4]
+	case player.Paused:
+		return mascotPaused
+	default:
+		return mascotStopped
+	}
+}
+
 func (m *Model) renderTracks(w, h int) string {
 	innerW := w - 4
 	innerH := h - 2
+
+	// Reserve space for the mascot column on the right.
+	trackW := innerW - mascotW
+	cat := m.mascotLines()
+	mStyle := styleMascot.Width(mascotW)
+	catStr := [3]string{
+		mStyle.Render(cat[0]),
+		mStyle.Render(cat[1]),
+		mStyle.Render(cat[2]),
+	}
+	blank := strings.Repeat(" ", mascotW)
 
 	var sb strings.Builder
 	folderName := ""
 	if len(m.folders) > 0 {
 		folderName = m.folders[m.folderIdx].Name
 	}
-	title := styleTitle.Render("  " + truncate(folderName, innerW-6))
-	sb.WriteString(title + "\n")
+	title := styleTitle.Render("  " + truncate(folderName, trackW-6))
+	sb.WriteString(padRight(title, innerW-mascotW) + catStr[0] + "\n")
 
 	tracks := m.currentTracks()
 	if len(tracks) == 0 {
-		sb.WriteString(styleDim.Render("  no tracks"))
+		sb.WriteString(padRight(styleDim.Render("  no tracks"), innerW-mascotW) + catStr[1] + "\n")
 	} else {
 		offset := scrollOffset(m.trackIdx, innerH-1)
 		for i := offset; i < len(tracks) && i < offset+innerH-1; i++ {
 			t := tracks[i]
+			rowInPanel := i - offset
 			num := fmt.Sprintf("%3d. ", i+1)
-			name := truncate(t.Name, innerW-6)
+			name := truncate(t.Name, trackW-6)
 			isNow := m.nowPlaying != nil && t.Path == m.nowPlaying.Path
 
 			var line string
 			if isNow {
 				icon := playIcon(m.player.State())
-				line = styleNowPlaying.Render(num+icon+" "+name)
+				line = styleNowPlaying.Render(num + icon + " " + name)
 			} else if i == m.trackIdx {
 				if m.focused == panelTracks {
-					line = styleSelected.Width(innerW).Render(num + "  " + name)
+					line = styleSelected.Width(trackW - 4).Render(num + "  " + name)
 				} else {
 					line = styleNormal.Bold(true).Render(num + "  " + name)
 				}
 			} else {
 				line = styleDim.Render(num + "  " + name)
+			}
+
+			// Pad line to track area width then append mascot or blank.
+			line = padRight(line, innerW-mascotW)
+			if rowInPanel == 0 {
+				line += catStr[1]
+			} else if rowInPanel == 1 {
+				line += catStr[2]
+			} else {
+				line += blank
 			}
 			sb.WriteString(line + "\n")
 		}
@@ -544,7 +699,12 @@ func (m *Model) renderBottom(w int) string {
 		if m.loop {
 			loopMark = stylePlaying.Render(" ↺")
 		}
-		label := stateStyle.Render(icon+" "+m.nowPlaying.Name) + loopMark
+		vol := m.player.Volume()
+		volStr := ""
+		if vol < 0.995 {
+			volStr = styleDim.Render(fmt.Sprintf("  vol:%d%%", int(math.Round(vol*100))))
+		}
+		label := stateStyle.Render(icon+" "+m.nowPlaying.Name) + loopMark + volStr
 		ratio, elapsed, total := m.player.Progress()
 		timeStr := fmt.Sprintf(" %s / %s", fmtDur(elapsed), fmtDur(total))
 		sb.WriteString(label + styleDim.Render(timeStr) + "\n")
@@ -555,7 +715,11 @@ func (m *Model) renderBottom(w int) string {
 	}
 
 	// Key hints
-	hints := []string{"j/k:move", "h/l:panel", "enter:play", "spc:pause", "n/p:next/prev", "r:loop", "^r:lua", "q:quit"}
+	hints := []string{
+		"j/k:move", "h/l:panel", "enter:play", "spc:pause",
+		"n/p:next/prev", "r:loop", "+/-:vol", "[/]:seek5s", "{/}:seek30s",
+		"^r:lua", "q:quit",
+	}
 	var hintParts []string
 	for _, h := range hints {
 		parts := strings.SplitN(h, ":", 2)
@@ -622,6 +786,15 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return string(runes[:maxLen-1]) + "…"
+}
+
+// padRight pads s with spaces until its visible width (ANSI-aware) equals width.
+func padRight(s string, width int) string {
+	n := lipgloss.Width(s)
+	if n >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-n)
 }
 
 func scrollOffset(cursor, visible int) int {

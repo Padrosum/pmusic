@@ -80,6 +80,12 @@ var validActions = map[string]bool{
 	"focus_tracks":  true,
 	"reload_lua":    true,
 	"quit":          true,
+	"vol_up":        true,
+	"vol_down":      true,
+	"seek_back5":    true,
+	"seek_fwd5":     true,
+	"seek_back30":   true,
+	"seek_fwd30":    true,
 }
 
 // pmusic.register_keymap("f", "next")

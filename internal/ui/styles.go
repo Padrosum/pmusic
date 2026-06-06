@@ -23,6 +23,7 @@ var (
 	styleKey           lipgloss.Style
 	styleStatusBar     lipgloss.Style
 	styleNotify        lipgloss.Style
+	styleMascot        lipgloss.Style
 )
 
 func init() {
@@ -63,4 +64,5 @@ func applyTheme(t luaeng.Theme) {
 	styleKey = lipgloss.NewStyle().Foreground(k).Bold(true)
 	styleStatusBar = lipgloss.NewStyle().Background(sbg).Foreground(fg).Padding(0, 1)
 	styleNotify = lipgloss.NewStyle().Foreground(amber).Bold(true)
+	styleMascot = lipgloss.NewStyle().Foreground(accent).Bold(true)
 }
