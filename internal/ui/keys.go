@@ -20,6 +20,7 @@ type keyMap struct {
 	SeekFwd30  key.Binding
 	ReloadLua  key.Binding
 	Quit       key.Binding
+	Help       key.Binding
 }
 
 var keys = keyMap{
@@ -40,4 +41,5 @@ var keys = keyMap{
 	SeekFwd30:  key.NewBinding(key.WithKeys("}"), key.WithHelp("}", "seek +30s")),
 	ReloadLua:  key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r", "reload lua")),
 	Quit:       key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+	Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 }

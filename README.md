@@ -3,27 +3,34 @@
 A terminal-based (TUI) local music player written in Go.
 
 ```text
-┌── Folders ──────────────┬── Jazz ────────────────────────────────────┐
-│  Classic Rock           │    1.  ▶ Kind of Blue - Miles Davis        │
-│  Electronic             │    2.    So What                           │
-│> Jazz                   │    3.    Freddie Freeloader                │
-│  Lo-fi                  │    4.    Blue in Green                     │
-└─────────────────────────┴────────────────────────────────────────────┘
-  ▶ Kind of Blue - Miles Davis ↺                           2:14 / 9:22
-  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━────────────────────────────────────────
-  j/k:move  h/l:panel  enter:play  spc:pause  n/p:next/prev  r:loop  ^r:lua  q:quit
+┌── Folders ──────────────┬── Jazz ──────────────────────/\_/\──┐
+│  Classic Rock           │    1.  ▶ Kind of Blue        (^.^)  │
+│  Electronic             │    2.    So What              >♪ <  │
+│> Jazz                   │    3.    Freddie Freeloader          │
+│  Lo-fi                  │    4.    Blue in Green               │
+└─────────────────────────┴──────────────────────────────────────┘
+  ▶ Miles Davis — Kind of Blue ↺                         2:14 / 9:22
+  Kind of Blue
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━──────────────────────────────────
+  j/k:move  h/l:panel  spc:pause  +/-:vol  [/]:seek5s  ?:help  q:quit
 ```
 
 ## Features
 
 - **Two-panel interface** — folders on the left, tracks on the right
 - Supports **MP3, FLAC, and WAV** formats
+- **ID3 / Vorbis metadata** — artist, album, and title read from file tags; falls back to filename
+- **Volume control** — `+` / `-` keys in 10% steps, persists across tracks
+- **Song seeking** — `[` / `]` for ±5 seconds, `{` / `}` for ±30 seconds
+- **Mouse support** — click to select and play, scroll wheel to navigate
+- **Animated ASCII mascot** — a cat in the corner of the tracks panel that reacts to play / pause / stop state
+- **Help overlay** — press `?` to show all shortcuts in a centered popup
 - **Progress bar** with elapsed time / total duration display
-- **Loop mode** — repeat the current track
+- **Loop mode** — repeat the current track (`r`)
 - **Automatic track switching** — plays the next track when the current one ends
-- **Live directory watching** — automatically refreshes when new files are added
-- **Persistent configuration** — selected music directory is saved automatically
-- **Lua scripting** — theme, keybindings, and hooks configurable without recompiling
+- **Live directory watching** — automatically refreshes when files are added or removed
+- **Persistent configuration** — music directory is saved to `~/.config/pmusic/config.json`
+- **Lua scripting** — theme, keybindings, and event hooks configurable without recompiling
 
 ## Installation
 
@@ -74,8 +81,21 @@ On first startup a setup screen appears asking for your music folder path. This 
 | `n` | Next track |
 | `p` | Previous track |
 | `r` | Toggle loop mode |
+| `[` / `]` | Seek ±5 seconds |
+| `{` / `}` | Seek ±30 seconds |
+| `+` / `=` | Volume up (+10%) |
+| `-` | Volume down (−10%) |
+| `?` | Show / hide help overlay |
 | `Ctrl+R` | Reload Lua config (hot-reload) |
 | `q` / `Ctrl+C` | Quit |
+
+## Mouse
+
+| Input | Action |
+|-------|--------|
+| Left click on track | Select and play immediately |
+| Left click on folder | Select folder |
+| Scroll wheel | Navigate up / down |
 
 ## Lua Scripting
 
@@ -108,7 +128,12 @@ Edit `~/.config/pmusic/lua/init.lua`, then press `Ctrl+R` inside pmusic to apply
 │   └── tokyo-night.lua
 └── plugins/
     ├── logger.lua
-    └── keymaps.lua
+    ├── stats.lua
+    ├── keymaps.lua
+    ├── listen-time.lua
+    ├── notify-send.lua
+    ├── statusline.lua
+    └── theme-scheduler.lua
 ```
 
 ### API reference
@@ -124,7 +149,8 @@ Edit `~/.config/pmusic/lua/init.lua`, then press `Ctrl+R` inside pmusic to apply
 | `pmusic.config_dir()` | Returns the path to `~/.config/pmusic/lua/` |
 | `pmusic.version` | Current API version string |
 
-**Actions for `register_keymap`:** `toggle_pause` · `next` · `prev` · `loop` · `focus_folders` · `focus_tracks` · `reload_lua` · `quit`
+**Actions for `register_keymap`:**
+`toggle_pause` · `next` · `prev` · `loop` · `focus_folders` · `focus_tracks` · `reload_lua` · `quit` · `vol_up` · `vol_down` · `seek_back5` · `seek_fwd5` · `seek_back30` · `seek_fwd30`
 
 ### Themes
 
@@ -161,7 +187,7 @@ pmusic.set_theme({
 require("plugins/logger")
 ```
 
-**stats** (`lua/plugins/stats.lua`) — tracks how many times each song was played in the current session and shows a notification on repeat plays:
+**stats** (`lua/plugins/stats.lua`) — tracks how many times each song was played in the current session and notifies on repeat plays:
 
 ```lua
 require("plugins/stats")
@@ -171,6 +197,30 @@ require("plugins/stats")
 
 ```lua
 require("plugins/keymaps")
+```
+
+**listen-time** (`lua/plugins/listen-time.lua`) — tracks total listening time for the session (pause-aware) and notifies on each track change:
+
+```lua
+require("plugins/listen-time")
+```
+
+**notify-send** (`lua/plugins/notify-send.lua`) — sends a desktop notification on every track change (auto-detects dunstify / notify-send / osascript):
+
+```lua
+require("plugins/notify-send")
+```
+
+**statusline** (`lua/plugins/statusline.lua`) — writes current playback state to `/tmp/pmusic-status.json` for waybar, polybar, eww, or tmux integration:
+
+```lua
+require("plugins/statusline")
+```
+
+**theme-scheduler** (`lua/plugins/theme-scheduler.lua`) — automatically switches theme based on the time of day (light in morning, dark at night):
+
+```lua
+require("plugins/theme-scheduler")
 ```
 
 ### Example: notify on every song change
@@ -184,8 +234,10 @@ end)
 ### Example: custom key binding
 
 ```lua
-pmusic.register_keymap("f", "next")   -- f → next track
-pmusic.register_keymap("b", "prev")   -- b → previous track
+pmusic.register_keymap("f", "next")      -- f → next track
+pmusic.register_keymap("b", "prev")      -- b → previous track
+pmusic.register_keymap("u", "vol_up")    -- u → volume up
+pmusic.register_keymap("d", "vol_down")  -- d → volume down
 ```
 
 ## Requirements

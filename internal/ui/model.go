@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	pfs "github.com/padros/pmusic/internal/fs"
 	luaeng "github.com/padros/pmusic/internal/lua"
+	"github.com/padros/pmusic/internal/meta"
 	"github.com/padros/pmusic/internal/player"
 	"github.com/padros/pmusic/internal/watcher"
 )
@@ -56,6 +57,9 @@ type Model struct {
 	loop       bool
 
 	mascotFrame int
+
+	nowMeta  meta.Meta
+	showHelp bool
 
 	watcher *watcher.Watcher
 	rootDir string
@@ -156,9 +160,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rescan()
 		}
 
-		// Fire on_song_change hook when the playing track changes.
+		// Fire on_song_change hook and load metadata when the playing track changes.
 		if m.nowPlaying != nil && m.nowPlaying.Path != m.prevPlayingPath {
 			m.prevPlayingPath = m.nowPlaying.Path
+			m.nowMeta = meta.Read(m.nowPlaying.Path)
 			folder := ""
 			if m.nowFolder < len(m.folders) {
 				folder = m.folders[m.nowFolder].Name
@@ -194,6 +199,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if cmd == nil {
 				m.nowPlaying = nil
+				m.nowMeta = meta.Meta{}
 			}
 			return m, tea.Batch(tickCmd(), cmd)
 		}
@@ -203,6 +209,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleMouse(msg)
 
 	case tea.KeyMsg:
+		// Help overlay intercepts all keys — only ? and q close it.
+		if m.showHelp {
+			if key.Matches(msg, keys.Help) || key.Matches(msg, keys.Quit) {
+				m.showHelp = false
+			}
+			return m, nil
+		}
+
 		// Check Lua-registered custom keymaps before built-in bindings.
 		if action := m.luaEngine.Keymap(msg.String()); action != "" {
 			if cmd := m.dispatchAction(action); cmd != nil {
@@ -271,6 +285,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, keys.SeekFwd30):
 			m.player.Seek(30 * time.Second)
+
+		case key.Matches(msg, keys.Help):
+			m.showHelp = true
 		}
 	}
 	return m, nil
@@ -549,6 +566,9 @@ func (m *Model) View() string {
 	if m.width == 0 {
 		return "loading..."
 	}
+	if m.showHelp {
+		return m.renderHelp()
+	}
 
 	bottomH := 4
 	mainH := m.height - bottomH - 2
@@ -704,10 +724,23 @@ func (m *Model) renderBottom(w int) string {
 		if vol < 0.995 {
 			volStr = styleDim.Render(fmt.Sprintf("  vol:%d%%", int(math.Round(vol*100))))
 		}
-		label := stateStyle.Render(icon+" "+m.nowPlaying.Name) + loopMark + volStr
+		// Build display title from metadata, fallback to filename.
+		displayTitle := m.nowPlaying.Name
+		if m.nowMeta.Title != "" {
+			displayTitle = m.nowMeta.Title
+		}
+		if m.nowMeta.Artist != "" {
+			displayTitle = m.nowMeta.Artist + " — " + displayTitle
+		}
+		label := stateStyle.Render(icon+" "+displayTitle) + loopMark + volStr
 		ratio, elapsed, total := m.player.Progress()
 		timeStr := fmt.Sprintf(" %s / %s", fmtDur(elapsed), fmtDur(total))
 		sb.WriteString(label + styleDim.Render(timeStr) + "\n")
+		if m.nowMeta.Album != "" {
+			sb.WriteString(styleDim.Render("  "+m.nowMeta.Album) + "\n")
+		} else {
+			sb.WriteString("\n")
+		}
 		sb.WriteString(renderProgress(w-4, ratio) + "\n")
 	} else {
 		sb.WriteString(styleDim.Render("  nothing playing") + "\n")
@@ -809,4 +842,40 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// renderHelp returns a full-screen centered help overlay listing all key bindings.
+func (m *Model) renderHelp() string {
+	type section struct{ title, bindings string }
+	sections := []section{
+		{"Navigasyon", "j / k      yukarı / aşağı\nh / l      klasörler / parçalar\nEnter      seç ve çal"},
+		{"Oynatma", "Space      duraklat / devam\nn          sonraki parça\np          önceki parça\nr          döngü modu"},
+		{"Sarma", "[  /  ]    ±5 saniye\n{  /  }    ±30 saniye"},
+		{"Ses", "+  /  =    ses arttır (%10)\n-          ses azalt (%10)"},
+		{"Sistem", "?          bu yardımı göster / kapat\nCtrl+R     Lua config yenile\nq          çık"},
+	}
+
+	var lines []string
+	lines = append(lines, styleTitle.Render("  ♪  Klavye Kısayolları  "))
+	lines = append(lines, "")
+	for _, s := range sections {
+		lines = append(lines, stylePlaying.Render("  "+s.title))
+		for _, b := range strings.Split(s.bindings, "\n") {
+			lines = append(lines, styleDim.Render("    "+b))
+		}
+		lines = append(lines, "")
+	}
+	lines = append(lines, styleDim.Render("  [ ? ] veya [ q ] tuşuyla kapat"))
+
+	content := strings.Join(lines, "\n")
+	boxW := min(62, m.width-4)
+	box := stylePanelActive.Width(boxW).Render(content)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 }
