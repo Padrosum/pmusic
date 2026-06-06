@@ -18,13 +18,14 @@ func (e *Engine) registerAPI(L *glua.LState, dir string) {
 	}
 
 	api := L.NewTable()
-	L.SetField(api, "version", glua.LString("0.1.0"))
+	L.SetField(api, "version", glua.LString("0.2.0"))
 	L.SetField(api, "set_theme", L.NewFunction(e.luaSetTheme))
 	L.SetField(api, "register_keymap", L.NewFunction(e.luaRegisterKeymap))
 	L.SetField(api, "on_song_change", L.NewFunction(e.luaOnSongChange))
 	L.SetField(api, "on_state_change", L.NewFunction(e.luaOnStateChange))
 	L.SetField(api, "notify", L.NewFunction(e.luaNotify))
 	L.SetField(api, "config_dir", L.NewFunction(e.luaConfigDir))
+	L.SetField(api, "music_dir", L.NewFunction(e.luaMusicDir))
 	L.SetField(api, "get_theme", L.NewFunction(e.luaGetTheme))
 	L.SetGlobal("pmusic", api)
 }
@@ -88,17 +89,23 @@ var validActions = map[string]bool{
 	"seek_fwd30":    true,
 }
 
-// pmusic.register_keymap("f", "next")
-// Available actions: toggle_pause, next, prev, loop,
-//                    focus_folders, focus_tracks, reload_lua, quit
+// pmusic.register_keymap("f", "next")          -- bind to built-in action
+// pmusic.register_keymap("Y", function() end)  -- bind to Lua function
 func (e *Engine) luaRegisterKeymap(L *glua.LState) int {
-	key := L.CheckString(1)
-	action := L.CheckString(2)
-	if !validActions[action] {
-		e.pendingNotify = "unknown keymap action: " + action
-		return 0
+	k := L.CheckString(1)
+	switch L.Get(2).Type() {
+	case glua.LTString:
+		action := L.CheckString(2)
+		if !validActions[action] {
+			e.pendingNotify = "unknown keymap action: " + action
+			return 0
+		}
+		e.keymaps[k] = action
+	case glua.LTFunction:
+		e.keyFuncs[k] = L.CheckFunction(2)
+	default:
+		e.pendingNotify = "register_keymap: arg2 must be a string action or a function"
 	}
-	e.keymaps[key] = action
 	return 0
 }
 
@@ -130,5 +137,12 @@ func (e *Engine) luaConfigDir(L *glua.LState) int {
 		return 1
 	}
 	L.Push(glua.LString(filepath.Dir(p)))
+	return 1
+}
+
+// pmusic.music_dir() → string  -- returns the configured music directory
+// Called while e.mu is already held (from CallKeyFunc / hook calls), so no lock.
+func (e *Engine) luaMusicDir(L *glua.LState) int {
+	L.Push(glua.LString(e.musicDir))
 	return 1
 }

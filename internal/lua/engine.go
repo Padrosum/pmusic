@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	pmcfg "github.com/padros/pmusic/internal/config"
 	glua "github.com/yuin/gopher-lua"
 )
 
@@ -46,8 +47,10 @@ type Engine struct {
 	L  *glua.LState
 
 	theme         Theme
-	keymaps       map[string]string // raw key string → action name
-	pendingNotify string            // consumed by PopNotification
+	keymaps       map[string]string           // raw key string → action name
+	keyFuncs      map[string]*glua.LFunction  // raw key string → Lua function
+	musicDir      string                      // configured music directory
+	pendingNotify string                      // consumed by PopNotification
 
 	onSongChange  *glua.LFunction
 	onStateChange *glua.LFunction
@@ -56,9 +59,36 @@ type Engine struct {
 // New creates an Engine with the default theme and empty keymaps.
 func New() *Engine {
 	return &Engine{
-		theme:   DefaultTheme(),
-		keymaps: make(map[string]string),
+		theme:    DefaultTheme(),
+		keymaps:  make(map[string]string),
+		keyFuncs: make(map[string]*glua.LFunction),
 	}
+}
+
+// SetMusicDir stores the configured music directory so Lua plugins can query it.
+func (e *Engine) SetMusicDir(dir string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.musicDir = dir
+}
+
+// HasKeyFunc reports whether a Lua function is bound to the given key string.
+func (e *Engine) HasKeyFunc(key string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	_, ok := e.keyFuncs[key]
+	return ok
+}
+
+// CallKeyFunc calls the Lua function bound to key and returns any error.
+func (e *Engine) CallKeyFunc(key string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	fn, ok := e.keyFuncs[key]
+	if !ok || e.L == nil {
+		return nil
+	}
+	return e.L.CallByParam(glua.P{Fn: fn, NRet: 0, Protect: true})
 }
 
 // Load (re)initializes the Lua VM and runs ~/.config/pmusic/lua/init.lua.
@@ -74,6 +104,7 @@ func (e *Engine) Load() error {
 	}
 	e.theme = DefaultTheme()
 	e.keymaps = make(map[string]string)
+	e.keyFuncs = make(map[string]*glua.LFunction)
 	e.onSongChange = nil
 	e.onStateChange = nil
 	e.pendingNotify = ""
@@ -87,7 +118,26 @@ func (e *Engine) Load() error {
 	}
 
 	L := glua.NewState()
-	e.registerAPI(L, filepath.Dir(initPath))
+	luaDir := filepath.Dir(initPath)
+	e.registerAPI(L, luaDir)
+
+	enabled, _ := pmcfg.LoadEnabled()
+	for _, name := range enabled.Plugins {
+		p := filepath.Join(luaDir, "plugins", name+".lua")
+		if _, err := os.Stat(p); err == nil {
+			if err := L.DoFile(p); err != nil {
+				e.pendingNotify = "plugin " + name + ": " + err.Error()
+			}
+		}
+	}
+	for _, name := range enabled.Themes {
+		p := filepath.Join(luaDir, "themes", name+".lua")
+		if _, err := os.Stat(p); err == nil {
+			if err := L.DoFile(p); err != nil {
+				e.pendingNotify = "theme " + name + ": " + err.Error()
+			}
+		}
+	}
 
 	if err := L.DoFile(initPath); err != nil {
 		L.Close()

@@ -3,17 +3,24 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/padros/pmusic/internal/config"
+	"github.com/padros/pmusic/internal/store"
 	"github.com/padros/pmusic/internal/ui"
 )
 
 func main() {
-	// CLI argument overrides config (useful for one-off sessions).
 	if len(os.Args) > 1 {
-		runPlayer(os.Args[1])
-		return
+		switch os.Args[1] {
+		case "-s", "--sync", "sync":
+			runSync()
+			return
+		default:
+			runPlayer(os.Args[1])
+			return
+		}
 	}
 
 	cfg, err := config.Load()
@@ -62,6 +69,19 @@ func runPlayer(dir string) {
 	if _, err := p.Run(); err != nil {
 		fatalf("%v", err)
 	}
+}
+
+func runSync() {
+	base, err := os.UserConfigDir()
+	if err != nil {
+		fatalf("config dir: %v", err)
+	}
+	luaDir := filepath.Join(base, "pmusic", "lua")
+	fmt.Println("Syncing pmusic plugins and themes...")
+	if err := store.Sync(luaDir); err != nil {
+		fatalf("sync: %v", err)
+	}
+	fmt.Println("Done. Open pmusic and press g to manage.")
 }
 
 func fatalf(format string, args ...any) {

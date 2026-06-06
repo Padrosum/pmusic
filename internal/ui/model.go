@@ -3,16 +3,20 @@ package ui
 import (
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	pmcfg "github.com/padros/pmusic/internal/config"
 	pfs "github.com/padros/pmusic/internal/fs"
 	luaeng "github.com/padros/pmusic/internal/lua"
 	"github.com/padros/pmusic/internal/meta"
 	"github.com/padros/pmusic/internal/player"
+	pmstore "github.com/padros/pmusic/internal/store"
 	"github.com/padros/pmusic/internal/watcher"
 )
 
@@ -40,6 +44,12 @@ var mascotPlaying = [4][3]string{
 var mascotPaused  = [3]string{`/\_/\`, `(-_-)`, `~♩~ `}
 var mascotStopped = [3]string{`/\_/\`, `(z.z)`, ` zzz`}
 
+type storeEntry struct {
+	pmstore.Item
+	Installed bool
+	Enabled   bool
+}
+
 type Model struct {
 	width, height int
 	focused       panel
@@ -60,6 +70,11 @@ type Model struct {
 
 	nowMeta  meta.Meta
 	showHelp bool
+
+	showStore   bool
+	storeItems  []storeEntry
+	storeCursor int
+	storeTab    int // 0=plugins 1=themes
 
 	watcher *watcher.Watcher
 	rootDir string
@@ -102,6 +117,7 @@ func New(rootDir string) (*Model, error) {
 	}
 
 	eng := luaeng.New()
+	eng.SetMusicDir(rootDir)
 	if err := eng.Load(); err != nil {
 		m.notification = "lua: " + err.Error()
 		m.notifyUntil = time.Now().Add(10 * time.Second)
@@ -209,6 +225,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleMouse(msg)
 
 	case tea.KeyMsg:
+		// Store overlay intercepts all keys.
+		if m.showStore {
+			return m.handleStore(msg)
+		}
+
 		// Help overlay intercepts all keys — only ? and q close it.
 		if m.showHelp {
 			if key.Matches(msg, keys.Help) || key.Matches(msg, keys.Quit) {
@@ -221,6 +242,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if action := m.luaEngine.Keymap(msg.String()); action != "" {
 			if cmd := m.dispatchAction(action); cmd != nil {
 				return m, cmd
+			}
+			return m, nil
+		}
+
+		// Check Lua function keymaps (register_keymap with a function).
+		if m.luaEngine.HasKeyFunc(msg.String()) {
+			if err := m.luaEngine.CallKeyFunc(msg.String()); err != nil {
+				m.notification = "lua: " + err.Error()
+				m.notifyUntil = time.Now().Add(5 * time.Second)
+			}
+			if n := m.luaEngine.PopNotification(); n != "" {
+				m.notification = n
+				m.notifyUntil = time.Now().Add(5 * time.Second)
 			}
 			return m, nil
 		}
@@ -288,6 +322,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, keys.Help):
 			m.showHelp = true
+
+		case key.Matches(msg, keys.Store):
+			m.loadStoreItems()
+			m.showStore = true
+			m.storeCursor = 0
 		}
 	}
 	return m, nil
@@ -566,6 +605,9 @@ func (m *Model) View() string {
 	if m.width == 0 {
 		return "loading..."
 	}
+	if m.showStore {
+		return m.renderStore()
+	}
 	if m.showHelp {
 		return m.renderHelp()
 	}
@@ -750,8 +792,8 @@ func (m *Model) renderBottom(w int) string {
 	// Key hints
 	hints := []string{
 		"j/k:move", "h/l:panel", "enter:play", "spc:pause",
-		"n/p:next/prev", "r:loop", "+/-:vol", "[/]:seek5s", "{/}:seek30s",
-		"^r:lua", "q:quit",
+		"n/p:next/prev", "r:loop", "+/-:vol", "[/]:seek5s",
+		"g:store", "?:help", "^r:lua", "q:quit",
 	}
 	var hintParts []string
 	for _, h := range hints {
@@ -849,6 +891,150 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func luaConfigDir() (string, error) {
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "pmusic", "lua"), nil
+}
+
+func (m *Model) loadStoreItems() {
+	luaDir, _ := luaConfigDir()
+	enabled, _ := pmcfg.LoadEnabled()
+	items := make([]storeEntry, 0, len(pmstore.Plugins)+len(pmstore.Themes))
+	for _, item := range append(append([]pmstore.Item{}, pmstore.Plugins...), pmstore.Themes...) {
+		subdir := "plugins"
+		if item.Kind == "theme" {
+			subdir = "themes"
+		}
+		p := filepath.Join(luaDir, subdir, item.Name+".lua")
+		_, err := os.Stat(p)
+		items = append(items, storeEntry{
+			Item:      item,
+			Installed: err == nil,
+			Enabled:   enabled.Has(item.Kind, item.Name),
+		})
+	}
+	m.storeItems = items
+}
+
+func (m *Model) visibleStoreItems() []storeEntry {
+	var out []storeEntry
+	for _, item := range m.storeItems {
+		if (m.storeTab == 0 && item.Kind == "plugin") ||
+			(m.storeTab == 1 && item.Kind == "theme") {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func (m *Model) toggleStoreItem() tea.Cmd {
+	visible := m.visibleStoreItems()
+	if len(visible) == 0 || m.storeCursor >= len(visible) {
+		return nil
+	}
+	item := visible[m.storeCursor]
+	if !item.Installed {
+		m.notification = item.Name + " kurulu değil — önce pmusic -s çalıştır"
+		m.notifyUntil = time.Now().Add(5 * time.Second)
+		return nil
+	}
+	enabled, _ := pmcfg.LoadEnabled()
+	enabled.Toggle(item.Kind, item.Name)
+	if err := pmcfg.SaveEnabled(enabled); err != nil {
+		m.notification = "kayıt hatası: " + err.Error()
+		m.notifyUntil = time.Now().Add(5 * time.Second)
+		return nil
+	}
+	m.loadStoreItems()
+	return m.reloadLuaCmd()
+}
+
+func (m *Model) handleStore(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	visible := m.visibleStoreItems()
+	switch {
+	case key.Matches(msg, keys.Store), key.Matches(msg, keys.Quit):
+		m.showStore = false
+	case key.Matches(msg, keys.Down):
+		if m.storeCursor < len(visible)-1 {
+			m.storeCursor++
+		}
+	case key.Matches(msg, keys.Up):
+		if m.storeCursor > 0 {
+			m.storeCursor--
+		}
+	case key.Matches(msg, keys.Left):
+		m.storeTab = 0
+		m.storeCursor = 0
+	case key.Matches(msg, keys.Right):
+		m.storeTab = 1
+		m.storeCursor = 0
+	case key.Matches(msg, keys.Space), key.Matches(msg, keys.Enter):
+		return m, m.toggleStoreItem()
+	}
+	return m, nil
+}
+
+func (m *Model) renderStore() string {
+	visible := m.visibleStoreItems()
+
+	tab0 := styleDim.Render("Plugins")
+	tab1 := styleDim.Render("Themes")
+	if m.storeTab == 0 {
+		tab0 = styleNowPlaying.Render("[Plugins]")
+	} else {
+		tab1 = styleNowPlaying.Render("[Themes]")
+	}
+
+	var lines []string
+	lines = append(lines, "  "+tab0+"  "+tab1+"   "+styleDim.Render("pmusic -s ile indir"))
+	lines = append(lines, "")
+
+	boxW := min(66, m.width-4)
+	contentW := boxW - 4
+
+	for i, item := range visible {
+		var icon string
+		switch {
+		case item.Enabled:
+			icon = styleNowPlaying.Render("✓")
+		case item.Installed:
+			icon = styleNormal.Render("○")
+		default:
+			icon = styleDim.Render("✗")
+		}
+
+		suffix := ""
+		if !item.Installed {
+			suffix = styleDim.Render(" [kurulu değil]")
+		}
+
+		descW := contentW - 2 - 24
+		if descW < 0 {
+			descW = 0
+		}
+		nameCol := fmt.Sprintf("%-20s", item.Name)
+		descCol := truncate(item.Desc, descW)
+		rowText := fmt.Sprintf("  %s  %s  %s%s", icon, nameCol, descCol, suffix)
+
+		if i == m.storeCursor {
+			rowText = styleSelected.Width(contentW).Render(
+				fmt.Sprintf("  %s  %-20s  %s%s", icon, item.Name, truncate(item.Desc, descW), suffix),
+			)
+		}
+		lines = append(lines, rowText)
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, styleDim.Render("  Space:toggle  h/l:sekme  g/q:kapat"))
+
+	content := styleTitle.Render("  Plugin Store  ") + "\n\n" + strings.Join(lines, "\n")
+	box := stylePanelActive.Width(boxW).Render(content)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 }
 
 // renderHelp returns a full-screen centered help overlay listing all key bindings.

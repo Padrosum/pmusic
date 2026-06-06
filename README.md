@@ -64,6 +64,9 @@ pmusic
 
 # Specify a directory directly
 pmusic ~/Music
+
+# Download all bundled plugins and themes to ~/.config/pmusic/lua/
+pmusic -s
 ```
 
 On first startup a setup screen appears asking for your music folder path. This is saved to `~/.config/pmusic/config.json` and won't be asked again.
@@ -86,6 +89,7 @@ On first startup a setup screen appears asking for your music folder path. This 
 | `+` / `=` | Volume up (+10%) |
 | `-` | Volume down (−10%) |
 | `?` | Show / hide help overlay |
+| `g` | Open plugin / theme store |
 | `Ctrl+R` | Reload Lua config (hot-reload) |
 | `q` / `Ctrl+C` | Quit |
 
@@ -96,6 +100,39 @@ On first startup a setup screen appears asking for your music folder path. This 
 | Left click on track | Select and play immediately |
 | Left click on folder | Select folder |
 | Scroll wheel | Navigate up / down |
+
+## Plugin Store
+
+pmusic has a built-in plugin manager. Run `pmusic -s` once to download all bundled plugins and themes, then press `g` inside pmusic to enable or disable them without editing any files.
+
+```sh
+pmusic -s        # download plugins + themes to ~/.config/pmusic/lua/
+```
+
+Inside pmusic press `g` to open the store overlay:
+
+```
+╭── Plugin Store ──────────────────────────────────╮
+│                                                  │
+│  [Plugins]  Themes   pmusic -s ile indir         │
+│                                                  │
+│  ✓  logger               Log played tracks...    │
+│  ✓  listen-time          Session listening...    │
+│  ○  stats                Session play-count...   │
+│  ✗  notify-send          [kurulu değil]          │
+│  ...                                             │
+│                                                  │
+│  Space:toggle  h/l:sekme  g/q:kapat              │
+╰──────────────────────────────────────────────────╯
+```
+
+| Icon | Meaning |
+|------|---------|
+| `✓` | Installed and **enabled** |
+| `○` | Installed but disabled |
+| `✗` | Not installed — run `pmusic -s` first |
+
+Enable state is saved to `~/.config/pmusic/enabled.json`. Enabled plugins and themes are loaded automatically on startup and after every `Ctrl+R` hot-reload.
 
 ## Lua Scripting
 
@@ -142,15 +179,24 @@ Edit `~/.config/pmusic/lua/init.lua`, then press `Ctrl+R` inside pmusic to apply
 |----------|-------------|
 | `pmusic.set_theme(t)` | Override UI colors — any subset of keys is accepted |
 | `pmusic.get_theme()` | Return the current theme as a Lua table |
-| `pmusic.register_keymap(key, action)` | Bind a key string to a built-in action |
+| `pmusic.register_keymap(key, action_or_fn)` | Bind a key to a built-in action string **or** a Lua function |
 | `pmusic.on_song_change(fn)` | Hook called with `{name, path, folder}` when a track starts |
 | `pmusic.on_state_change(fn)` | Hook called with `"playing"`, `"paused"`, or `"stopped"` |
 | `pmusic.notify(msg)` | Show a 5-second message in the status bar |
 | `pmusic.config_dir()` | Returns the path to `~/.config/pmusic/lua/` |
-| `pmusic.version` | Current API version string |
+| `pmusic.music_dir()` | Returns the configured music directory |
+| `pmusic.version` | Current API version string (`"0.2.0"`) |
 
-**Actions for `register_keymap`:**
+**Actions for `register_keymap` (string form):**
 `toggle_pause` · `next` · `prev` · `loop` · `focus_folders` · `focus_tracks` · `reload_lua` · `quit` · `vol_up` · `vol_down` · `seek_back5` · `seek_fwd5` · `seek_back30` · `seek_fwd30`
+
+**Function form** — bind any Lua logic to a key:
+```lua
+pmusic.register_keymap("Y", function()
+    pmusic.notify("custom action!")
+    os.execute("some-command &")
+end)
+```
 
 ### Themes
 
@@ -221,6 +267,19 @@ require("plugins/statusline")
 
 ```lua
 require("plugins/theme-scheduler")
+```
+
+**yt-dlp** (`lua/plugins/yt-dlp.lua`) — press `Y` to download the current track from YouTube as MP3 (requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) in `$PATH`). Files are saved to your music directory; the watcher picks them up automatically. The app never touches yt-dlp directly — all downloading happens inside the plugin:
+
+```lua
+require("plugins/yt-dlp")
+```
+
+Override the trigger key before requiring:
+
+```lua
+PMUSIC_YTDLP_KEY = "D"
+require("plugins/yt-dlp")
 ```
 
 ### Example: notify on every song change
