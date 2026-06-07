@@ -4,13 +4,11 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	pmcfg "github.com/padros/pmusic/internal/config"
@@ -33,12 +31,6 @@ type tickMsg time.Time
 
 // luaReloadedMsg is sent back to the Update loop after a Lua hot-reload attempt.
 type luaReloadedMsg struct{ err error }
-
-// ytdlpMsg is returned when the yt-dlp process has been launched.
-type ytdlpMsg struct {
-	query string
-	err   error
-}
 
 // mascot animation constants — each frame line is rendered at fixed width via lipgloss.
 const mascotW = 8
@@ -84,9 +76,6 @@ type Model struct {
 	storeCursor int
 	storeTab    int // 0=plugins 1=themes
 
-	showDownload  bool
-	downloadInput textinput.Model
-
 	watcher *watcher.Watcher
 	rootDir string
 
@@ -109,15 +98,11 @@ func New(rootDir string) (*Model, error) {
 	folders := pfs.FlatFolders(root)
 
 	p := player.New()
-	ti := textinput.New()
-	ti.Placeholder = "search YouTube..."
-	ti.CharLimit = 120
 	m := &Model{
-		root:          root,
-		folders:       folders,
-		player:        p,
-		rootDir:       rootDir,
-		downloadInput: ti,
+		root:    root,
+		folders: folders,
+		player:  p,
+		rootDir: rootDir,
 	}
 
 	p.SetOnDone(func() {
@@ -157,29 +142,6 @@ func tickCmd() tea.Cmd {
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Pass every message through the download input so its cursor blinks.
-	if m.showDownload {
-		var inputCmd tea.Cmd
-		m.downloadInput, inputCmd = m.downloadInput.Update(msg)
-		if keyMsg, ok := msg.(tea.KeyMsg); ok {
-			switch keyMsg.Type {
-			case tea.KeyEsc:
-				m.showDownload = false
-				m.downloadInput.Blur()
-				return m, nil
-			case tea.KeyEnter:
-				query := strings.TrimSpace(m.downloadInput.Value())
-				m.showDownload = false
-				m.downloadInput.Blur()
-				if query != "" {
-					return m, m.runYtDlp(query)
-				}
-				return m, nil
-			}
-		}
-		return m, inputCmd
-	}
-
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
@@ -195,15 +157,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.notifyUntil = time.Now().Add(5 * time.Second)
 		applyTheme(m.luaEngine.Theme())
-		return m, nil
-
-	case ytdlpMsg:
-		if msg.err != nil {
-			m.notification = "yt-dlp: " + msg.err.Error()
-		} else {
-			m.notification = "indiriliyor: " + msg.query
-		}
-		m.notifyUntil = time.Now().Add(8 * time.Second)
 		return m, nil
 
 	case tickMsg:
@@ -374,10 +327,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.loadStoreItems()
 			m.showStore = true
 			m.storeCursor = 0
-
-		case key.Matches(msg, keys.Download):
-			m.openDownloadPanel()
-			return m, m.downloadInput.Focus()
 		}
 	}
 	return m, nil
@@ -656,9 +605,6 @@ func (m *Model) View() string {
 	if m.width == 0 {
 		return "loading..."
 	}
-	if m.showDownload {
-		return m.renderDownload()
-	}
 	if m.showStore {
 		return m.renderStore()
 	}
@@ -847,7 +793,7 @@ func (m *Model) renderBottom(w int) string {
 	hints := []string{
 		"j/k:move", "h/l:panel", "enter:play", "spc:pause",
 		"n/p:next/prev", "r:loop", "+/-:vol", "[/]:seek5s",
-		"Y:indir", "g:store", "?:help", "q:quit",
+		"g:store", "?:help", "q:quit",
 	}
 	var hintParts []string
 	for _, h := range hints {
@@ -945,56 +891,6 @@ func min(a, b int) int {
 		return a
 	}
 	return b
-}
-
-func (m *Model) openDownloadPanel() {
-	query := ""
-	if m.nowPlaying != nil {
-		query = m.nowPlaying.Name
-		if m.nowFolder < len(m.folders) && m.folders[m.nowFolder].Name != "" {
-			query = m.folders[m.nowFolder].Name + " " + query
-		}
-	}
-	m.downloadInput.SetValue(query)
-	m.downloadInput.CursorEnd()
-	m.showDownload = true
-}
-
-func (m *Model) runYtDlp(query string) tea.Cmd {
-	musicDir := m.rootDir
-	return func() tea.Msg {
-		if _, err := exec.LookPath("yt-dlp"); err != nil {
-			return ytdlpMsg{query: query, err: fmt.Errorf("yt-dlp bulunamadı — PATH'te kurulu olmalı")}
-		}
-		cmd := exec.Command("yt-dlp",
-			"-x", "--audio-format", "mp3", "--audio-quality", "0",
-			"-o", filepath.Join(musicDir, "%(title)s.%(ext)s"),
-			"ytsearch1:"+query,
-		)
-		if err := cmd.Start(); err != nil {
-			return ytdlpMsg{query: query, err: err}
-		}
-		go cmd.Wait() // prevent zombie process
-		return ytdlpMsg{query: query}
-	}
-}
-
-func (m *Model) renderDownload() string {
-	boxW := min(64, m.width-4)
-	inputW := boxW - 12 // "  Ara:  " prefix + border padding
-
-	m.downloadInput.Width = inputW
-
-	var lines []string
-	lines = append(lines, styleTitle.Render("  YouTube'dan indir  "))
-	lines = append(lines, "")
-	lines = append(lines, styleDim.Render("  Ara:  ")+m.downloadInput.View())
-	lines = append(lines, "")
-	lines = append(lines, styleDim.Render("  Enter:indir   Esc:kapat"))
-
-	content := strings.Join(lines, "\n")
-	box := stylePanelActive.Width(boxW).Render(content)
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 }
 
 func luaConfigDir() (string, error) {

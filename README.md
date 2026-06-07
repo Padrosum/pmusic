@@ -89,7 +89,6 @@ On first startup a setup screen appears asking for your music folder path. This 
 | `+` / `=` | Volume up (+10%) |
 | `-` | Volume down (−10%) |
 | `?` | Show / hide help overlay |
-| `Y` | Open YouTube download panel |
 | `g` | Open plugin / theme store |
 | `Ctrl+R` | Reload Lua config (hot-reload) |
 | `q` / `Ctrl+C` | Quit |
@@ -101,21 +100,6 @@ On first startup a setup screen appears asking for your music folder path. This 
 | Left click on track | Select and play immediately |
 | Left click on folder | Select folder |
 | Scroll wheel | Navigate up / down |
-
-## YouTube Download
-
-Press `Y` to open the download panel. The search field is pre-filled with the current track's folder and name; edit it to search for anything.
-
-```
-╭── YouTube'dan indir ────────────────────────────╮
-│                                                 │
-│  Ara:  Miles Davis Kind of Blue_                │
-│                                                 │
-│  Enter:indir   Esc:kapat                        │
-╰─────────────────────────────────────────────────╯
-```
-
-Requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) in `$PATH`. The download runs in the background; the filesystem watcher picks up the new MP3 automatically.
 
 ## Plugin Store
 
@@ -195,7 +179,7 @@ Edit `~/.config/pmusic/lua/init.lua`, then press `Ctrl+R` inside pmusic to apply
 |----------|-------------|
 | `pmusic.set_theme(t)` | Override UI colors — any subset of keys is accepted |
 | `pmusic.get_theme()` | Return the current theme as a Lua table |
-| `pmusic.register_keymap(key, action_or_fn)` | Bind a key to a built-in action string **or** a Lua function |
+| `pmusic.register_keymap(key, action_or_fn)` | Bind a key to a built-in action string **or** a Lua function — `pmusic.register_keymap("Y", function() … end)` |
 | `pmusic.on_song_change(fn)` | Hook called with `{name, path, folder}` when a track starts |
 | `pmusic.on_state_change(fn)` | Hook called with `"playing"`, `"paused"`, or `"stopped"` |
 | `pmusic.notify(msg)` | Show a 5-second message in the status bar |
@@ -284,6 +268,16 @@ require("plugins/statusline")
 
 ```lua
 require("plugins/theme-scheduler")
+```
+
+**yt-dlp** (`lua/plugins/yt-dlp.lua`) — downloads audio from YouTube using the currently playing track as the search query. Press `Y` (configurable) to trigger; the download runs in the background and the filesystem watcher picks up the new MP3 automatically. Requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) in `$PATH`.
+
+```lua
+require("plugins/yt-dlp")
+
+-- Optional: override the trigger key before requiring
+-- PMUSIC_YTDLP_KEY = "D"
+-- require("plugins/yt-dlp")
 ```
 
 
