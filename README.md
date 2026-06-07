@@ -89,6 +89,7 @@ On first startup a setup screen appears asking for your music folder path. This 
 | `+` / `=` | Volume up (+10%) |
 | `-` | Volume down (−10%) |
 | `?` | Show / hide help overlay |
+| `Y` | Open YouTube download panel |
 | `g` | Open plugin / theme store |
 | `Ctrl+R` | Reload Lua config (hot-reload) |
 | `q` / `Ctrl+C` | Quit |
@@ -100,6 +101,24 @@ On first startup a setup screen appears asking for your music folder path. This 
 | Left click on track | Select and play immediately |
 | Left click on folder | Select folder |
 | Scroll wheel | Navigate up / down |
+
+## YouTube Download
+
+Press `Y` to open the download panel. Type a YouTube URL to download that exact video, or type any search text to download the first matching result.
+
+```
+╭── ↓ YouTube İndir ──────────────────────────────╮
+│                                                 │
+│  https://www.youtube.com/watch?v=...            │
+│                                                 │
+│  URL veya arama · Enter:indir  Esc:kapat        │
+╰─────────────────────────────────────────────────╯
+```
+
+- **URL** (starts with `http`) — downloads that exact video
+- **Search text** — searches YouTube and downloads the first result
+
+Requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) in `$PATH`. The download runs in the background; the filesystem watcher picks up the new MP3 automatically.
 
 ## Plugin Store
 
@@ -270,15 +289,6 @@ require("plugins/statusline")
 require("plugins/theme-scheduler")
 ```
 
-**yt-dlp** (`lua/plugins/yt-dlp.lua`) — downloads audio from YouTube using the currently playing track as the search query. Press `Y` (configurable) to trigger; the download runs in the background and the filesystem watcher picks up the new MP3 automatically. Requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) in `$PATH`.
-
-```lua
-require("plugins/yt-dlp")
-
--- Optional: override the trigger key before requiring
--- PMUSIC_YTDLP_KEY = "D"
--- require("plugins/yt-dlp")
-```
 
 
 ### Example: notify on every song change

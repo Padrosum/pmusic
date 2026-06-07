@@ -24,7 +24,6 @@ var Plugins = []Item{
 	{"notify-send", "Desktop notifications on track change", "plugin"},
 	{"statusline", "Write status to /tmp/pmusic-status.json", "plugin"},
 	{"theme-scheduler", "Automatic time-based theme switching", "plugin"},
-	{"yt-dlp", "Download audio from YouTube via yt-dlp", "plugin"},
 }
 
 var Themes = []Item{
