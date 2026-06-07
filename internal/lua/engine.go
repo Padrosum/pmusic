@@ -52,6 +52,12 @@ type Engine struct {
 	musicDir      string                      // configured music directory
 	pendingNotify string                      // consumed by PopNotification
 
+	// current track — updated by CallOnSongChange so pmusic.current_track()
+	// always returns live data regardless of when a plugin was loaded.
+	currentName   string
+	currentPath   string
+	currentFolder string
+
 	onSongChange  *glua.LFunction
 	onStateChange *glua.LFunction
 }
@@ -108,6 +114,7 @@ func (e *Engine) Load() error {
 	e.onSongChange = nil
 	e.onStateChange = nil
 	e.pendingNotify = ""
+	// currentName/Path/Folder intentionally NOT reset — track is still playing
 
 	initPath, err := configInitPath()
 	if err != nil {
@@ -184,6 +191,9 @@ func (e *Engine) PopNotification() string {
 func (e *Engine) CallOnSongChange(name, path, folder string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.currentName = name
+	e.currentPath = path
+	e.currentFolder = folder
 	if e.onSongChange == nil || e.L == nil {
 		return
 	}

@@ -26,6 +26,7 @@ func (e *Engine) registerAPI(L *glua.LState, dir string) {
 	L.SetField(api, "notify", L.NewFunction(e.luaNotify))
 	L.SetField(api, "config_dir", L.NewFunction(e.luaConfigDir))
 	L.SetField(api, "music_dir", L.NewFunction(e.luaMusicDir))
+	L.SetField(api, "current_track", L.NewFunction(e.luaCurrentTrack))
 	L.SetField(api, "get_theme", L.NewFunction(e.luaGetTheme))
 	L.SetGlobal("pmusic", api)
 }
@@ -144,5 +145,17 @@ func (e *Engine) luaConfigDir(L *glua.LState) int {
 // Called while e.mu is already held (from CallKeyFunc / hook calls), so no lock.
 func (e *Engine) luaMusicDir(L *glua.LState) int {
 	L.Push(glua.LString(e.musicDir))
+	return 1
+}
+
+// pmusic.current_track() → {name, path, folder}
+// Returns the track that is currently playing (or was last played).
+// Unlike on_song_change, this works even when the plugin loads mid-playback.
+func (e *Engine) luaCurrentTrack(L *glua.LState) int {
+	t := L.NewTable()
+	L.SetField(t, "name", glua.LString(e.currentName))
+	L.SetField(t, "path", glua.LString(e.currentPath))
+	L.SetField(t, "folder", glua.LString(e.currentFolder))
+	L.Push(t)
 	return 1
 }

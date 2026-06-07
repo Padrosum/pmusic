@@ -89,6 +89,7 @@ On first startup a setup screen appears asking for your music folder path. This 
 | `+` / `=` | Volume up (+10%) |
 | `-` | Volume down (−10%) |
 | `?` | Show / hide help overlay |
+| `Y` | Open YouTube download panel |
 | `g` | Open plugin / theme store |
 | `Ctrl+R` | Reload Lua config (hot-reload) |
 | `q` / `Ctrl+C` | Quit |
@@ -100,6 +101,21 @@ On first startup a setup screen appears asking for your music folder path. This 
 | Left click on track | Select and play immediately |
 | Left click on folder | Select folder |
 | Scroll wheel | Navigate up / down |
+
+## YouTube Download
+
+Press `Y` to open the download panel. The search field is pre-filled with the current track's folder and name; edit it to search for anything.
+
+```
+╭── YouTube'dan indir ────────────────────────────╮
+│                                                 │
+│  Ara:  Miles Davis Kind of Blue_                │
+│                                                 │
+│  Enter:indir   Esc:kapat                        │
+╰─────────────────────────────────────────────────╯
+```
+
+Requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) in `$PATH`. The download runs in the background; the filesystem watcher picks up the new MP3 automatically.
 
 ## Plugin Store
 
@@ -185,6 +201,7 @@ Edit `~/.config/pmusic/lua/init.lua`, then press `Ctrl+R` inside pmusic to apply
 | `pmusic.notify(msg)` | Show a 5-second message in the status bar |
 | `pmusic.config_dir()` | Returns the path to `~/.config/pmusic/lua/` |
 | `pmusic.music_dir()` | Returns the configured music directory |
+| `pmusic.current_track()` | Returns `{name, path, folder}` of the playing (or last-played) track |
 | `pmusic.version` | Current API version string (`"0.2.0"`) |
 
 **Actions for `register_keymap` (string form):**
@@ -269,18 +286,6 @@ require("plugins/statusline")
 require("plugins/theme-scheduler")
 ```
 
-**yt-dlp** (`lua/plugins/yt-dlp.lua`) — press `Y` to download the current track from YouTube as MP3 (requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) in `$PATH`). Files are saved to your music directory; the watcher picks them up automatically. The app never touches yt-dlp directly — all downloading happens inside the plugin:
-
-```lua
-require("plugins/yt-dlp")
-```
-
-Override the trigger key before requiring:
-
-```lua
-PMUSIC_YTDLP_KEY = "D"
-require("plugins/yt-dlp")
-```
 
 ### Example: notify on every song change
 
