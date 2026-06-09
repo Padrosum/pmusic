@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/padros/pmusic/internal/blackjack"
 	pmcfg "github.com/padros/pmusic/internal/config"
 	pfs "github.com/padros/pmusic/internal/fs"
 	luaeng "github.com/padros/pmusic/internal/lua"
@@ -86,6 +87,9 @@ type Model struct {
 
 	showDownload  bool
 	downloadInput textinput.Model
+
+	showBlackjack bool
+	bjGame        *blackjack.Game
 
 	watcher *watcher.Watcher
 	rootDir string
@@ -290,6 +294,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Blackjack overlay intercepts all keys.
+		if m.showBlackjack {
+			return m.updateBlackjack(msg)
+		}
+
 		// Built-in Download panel takes priority over any Lua keymap on the same key.
 		if key.Matches(msg, keys.Download) {
 			m.downloadInput.SetValue("")
@@ -386,6 +395,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.loadStoreItems()
 			m.showStore = true
 			m.storeCursor = 0
+
+		case key.Matches(msg, keys.Blackjack):
+			if m.bjGame == nil {
+				m.bjGame = blackjack.New()
+			}
+			m.showBlackjack = true
 
 		}
 	}
@@ -674,6 +689,9 @@ func (m *Model) View() string {
 	if m.showHelp {
 		return m.renderHelp()
 	}
+	if m.showBlackjack && m.bjGame != nil {
+		return blackjack.Render(m.bjGame, m.width, m.height)
+	}
 
 	bottomH := 4
 	mainH := m.height - bottomH - 2
@@ -856,7 +874,7 @@ func (m *Model) renderBottom(w int) string {
 	hints := []string{
 		"j/k:move", "h/l:panel", "enter:play", "spc:pause",
 		"n/p:next/prev", "r:loop", "+/-:vol", "[/]:seek5s",
-		"Y:yt-dlp", "g:store", "?:help", "q:quit",
+		"Y:yt-dlp", "g:store", "b:blackjack", "?:help", "q:quit",
 	}
 	var hintParts []string
 	for _, h := range hints {
@@ -1135,6 +1153,40 @@ func (m *Model) renderStore() string {
 	content := styleTitle.Render("  Plugin Store  ") + "\n\n" + strings.Join(lines, "\n")
 	box := stylePanelActive.Width(boxW).Render(content)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
+}
+
+// updateBlackjack handles all key input while the blackjack overlay is active.
+func (m *Model) updateBlackjack(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	g := m.bjGame
+	switch msg.String() {
+	case "b", "esc":
+		m.showBlackjack = false
+	case "n":
+		if g.Phase == blackjack.PhaseMenu || g.Phase == blackjack.PhaseResult {
+			if g.Balance <= 0 {
+				g.NewRound()
+			} else {
+				g.Deal()
+			}
+		}
+	case "h":
+		if g.Phase == blackjack.PhasePlaying {
+			g.Hit()
+		}
+	case "s":
+		if g.Phase == blackjack.PhasePlaying {
+			g.Stand()
+		}
+	case "d":
+		if g.Phase == blackjack.PhasePlaying {
+			g.Double()
+		}
+	case "+", "=":
+		g.AdjustBet(10)
+	case "-":
+		g.AdjustBet(-10)
+	}
+	return m, nil
 }
 
 // renderHelp returns a full-screen centered help overlay listing all key bindings.

@@ -21,8 +21,9 @@ type keyMap struct {
 	ReloadLua  key.Binding
 	Quit       key.Binding
 	Help       key.Binding
-	Store    key.Binding
-	Download key.Binding
+	Store      key.Binding
+	Download   key.Binding
+	Blackjack  key.Binding
 }
 
 var keys = keyMap{
@@ -44,6 +45,7 @@ var keys = keyMap{
 	ReloadLua:  key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r", "reload lua")),
 	Quit:       key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 	Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
-	Store:    key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "store")),
-	Download: key.NewBinding(key.WithKeys("Y"), key.WithHelp("Y", "yt-dlp")),
+	Store:     key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "store")),
+	Download:  key.NewBinding(key.WithKeys("Y"), key.WithHelp("Y", "yt-dlp")),
+	Blackjack: key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "blackjack")),
 }
