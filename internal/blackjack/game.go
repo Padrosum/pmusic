@@ -117,7 +117,7 @@ func New() *Game {
 		Balance: 1000,
 		Bet:     50,
 		Phase:   PhaseMenu,
-		Message: "Bahsini ayarla [+/-] ve dağıt [n]",
+		Message: "Set your bet [+/-] and deal [n]",
 	}
 	g.buildDeck()
 	return g
@@ -217,7 +217,7 @@ func (g *Game) Deal() {
 	if pBJ && dBJ {
 		g.revealDealer()
 		g.Result = ResultPush
-		g.Message = "İkisi de Blackjack! Berabere."
+		g.Message = "Both blackjack! Push."
 		g.Phase = PhaseResult
 		return
 	}
@@ -228,7 +228,7 @@ func (g *Game) Deal() {
 		// (the wager itself is never deducted in this model).
 		winnings := g.Bet * 3 / 2
 		g.Balance += winnings
-		g.Message = "♠ BLACKJACK! +" + formatMoney(g.Bet*3/2) + " kazandın!"
+		g.Message = "♠ BLACKJACK! +" + formatMoney(g.Bet*3/2) + " win!"
 		g.Phase = PhaseResult
 		return
 	}
@@ -264,9 +264,9 @@ func (g *Game) Hit() {
 		g.Phase = PhaseResult
 		if g.Balance <= 0 {
 			g.Balance = 0
-			g.Message = "Battın! Yeni oyun için [n]"
+			g.Message = "Bust! Press [n] for a new game"
 		} else {
-			g.Message = "Battın! -" + formatMoney(g.Bet) + "  [n] yeni el"
+			g.Message = "Bust! -" + formatMoney(g.Bet) + "  [n] new hand"
 		}
 	}
 }
@@ -300,9 +300,9 @@ func (g *Game) Double() {
 		g.Phase = PhaseResult
 		if g.Balance <= 0 {
 			g.Balance = 0
-			g.Message = "Double — Battın! [n] yeni el"
+			g.Message = "Double — Bust! [n] new hand"
 		} else {
-			g.Message = "Double — Battın! -" + formatMoney(g.Bet) + "  [n] yeni el"
+			g.Message = "Double — Bust! -" + formatMoney(g.Bet) + "  [n] new hand"
 		}
 		g.Bet = originalBet
 		return
@@ -326,23 +326,23 @@ func (g *Game) settle() {
 	if dv > 21 {
 		g.Result = ResultDealerBust
 		g.Balance += g.Bet
-		g.Message = "Dealer battı! +" + formatMoney(g.Bet) + "  [n] yeni el"
+		g.Message = "Dealer bust! +" + formatMoney(g.Bet) + "  [n] new hand"
 	} else if pv > dv {
 		g.Result = ResultWin
 		g.Balance += g.Bet
-		g.Message = "Kazandın! +" + formatMoney(g.Bet) + "  [n] yeni el"
+		g.Message = "You win! +" + formatMoney(g.Bet) + "  [n] new hand"
 	} else if dv > pv {
 		g.Result = ResultLose
 		g.Balance -= g.Bet
 		if g.Balance <= 0 {
 			g.Balance = 0
-			g.Message = "Kaybettin! Battın — [n] ile yeniden başla"
+			g.Message = "You lose! Broke — press [n] to restart"
 		} else {
-			g.Message = "Kaybettin! -" + formatMoney(g.Bet) + "  [n] yeni el"
+			g.Message = "You lose! -" + formatMoney(g.Bet) + "  [n] new hand"
 		}
 	} else {
 		g.Result = ResultPush
-		g.Message = "Berabere! Bahis iade edildi.  [n] yeni el"
+		g.Message = "Push! Bet returned.  [n] new hand"
 	}
 	g.Phase = PhaseResult
 }
@@ -367,7 +367,7 @@ func (g *Game) NewRound() {
 	if g.Balance <= 0 {
 		g.Balance = 1000
 		g.Bet = 50
-		g.Message = "Yeniden başlıyorsun! Bahsini ayarla [+/-] ve dağıt [n]"
+		g.Message = "Starting over! Set your bet [+/-] and deal [n]"
 		g.Phase = PhaseMenu
 		g.PlayerHand = nil
 		g.DealerHand = nil
@@ -382,7 +382,7 @@ func (g *Game) NewRound() {
 	g.PlayerHand = nil
 	g.DealerHand = nil
 	g.Result = ResultNone
-	g.Message = "Bahsini ayarla [+/-] ve dağıt [n]"
+	g.Message = "Set your bet [+/-] and deal [n]"
 }
 
 func formatMoney(n int) string {

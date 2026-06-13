@@ -123,7 +123,7 @@ func Render(g *Game, termW, termH int) string {
 	// Balance & Bet
 	balStr := goldStyle.Render(formatMoney(g.Balance))
 	betStr := normalStyle.Render(formatMoney(g.Bet))
-	infoLine := "Bakiye: " + balStr + "   Bahis: " + betStr
+	infoLine := "Balance: " + balStr + "   Bet: " + betStr
 	lines = append(lines, infoLine)
 	lines = append(lines, "")
 
@@ -133,12 +133,12 @@ func Render(g *Game, termW, termH int) string {
 	if g.Phase == PhaseResult || g.Phase == PhaseDealer {
 		dv := g.DealerValue()
 		if dv > 21 {
-			dealerScore = loseStyle.Render(fmt.Sprintf(" — Puan: %d (BUST)", dv))
+			dealerScore = loseStyle.Render(fmt.Sprintf(" — Score: %d (BUST)", dv))
 		} else {
-			dealerScore = dimStyle.Render(fmt.Sprintf(" — Puan: %d", dv))
+			dealerScore = dimStyle.Render(fmt.Sprintf(" — Score: %d", dv))
 		}
 	} else if len(g.DealerHand) > 0 {
-		dealerScore = dimStyle.Render(fmt.Sprintf(" — Puan: %d + ?", g.DealerVisibleValue()))
+		dealerScore = dimStyle.Render(fmt.Sprintf(" — Score: %d + ?", g.DealerVisibleValue()))
 	}
 	lines = append(lines, dealerLabel+dealerScore)
 	lines = append(lines, "")
@@ -149,7 +149,7 @@ func Render(g *Game, termW, termH int) string {
 			lines = append(lines, "  "+l)
 		}
 	} else {
-		lines = append(lines, dimStyle.Render("  [ kart bekleniyor ]"))
+		lines = append(lines, dimStyle.Render("  [ waiting for cards ]"))
 	}
 
 	lines = append(lines, "")
@@ -157,17 +157,17 @@ func Render(g *Game, termW, termH int) string {
 	lines = append(lines, "")
 
 	// Player section
-	playerLabel := titleStyle.Render("SEN")
+	playerLabel := titleStyle.Render("YOU")
 	playerScore := ""
 	if len(g.PlayerHand) > 0 {
 		pv := g.PlayerValue()
 		switch {
 		case pv > 21:
-			playerScore = loseStyle.Render(fmt.Sprintf(" — Puan: %d (BUST)", pv))
+			playerScore = loseStyle.Render(fmt.Sprintf(" — Score: %d (BUST)", pv))
 		case pv == 21:
-			playerScore = winStyle.Render(fmt.Sprintf(" — Puan: %d ✓", pv))
+			playerScore = winStyle.Render(fmt.Sprintf(" — Score: %d ✓", pv))
 		default:
-			playerScore = dimStyle.Render(fmt.Sprintf(" — Puan: %d", pv))
+			playerScore = dimStyle.Render(fmt.Sprintf(" — Score: %d", pv))
 		}
 	}
 	lines = append(lines, playerLabel+playerScore)
@@ -179,7 +179,7 @@ func Render(g *Game, termW, termH int) string {
 			lines = append(lines, "  "+l)
 		}
 	} else {
-		lines = append(lines, dimStyle.Render("  [ kart bekleniyor ]"))
+		lines = append(lines, dimStyle.Render("  [ waiting for cards ]"))
 	}
 
 	lines = append(lines, "")
@@ -208,17 +208,17 @@ func Render(g *Game, termW, termH int) string {
 	var hints []string
 	switch g.Phase {
 	case PhaseMenu:
-		hints = []string{"[n] dağıt", "[+] bahis+", "[-] bahis-", "[b] kapat"}
+		hints = []string{"[n] deal", "[+] bet+", "[-] bet-", "[b] close"}
 	case PhasePlaying:
-		hints = []string{"[h] hit", "[s] stand", "[d] double", "[b] kapat"}
+		hints = []string{"[h] hit", "[s] stand", "[d] double", "[b] close"}
 	case PhaseResult:
 		if g.Balance <= 0 {
-			hints = []string{"[n] yeniden başla", "[b] kapat"}
+			hints = []string{"[n] restart", "[b] close"}
 		} else {
-			hints = []string{"[n] yeni el", "[+] bahis+", "[-] bahis-", "[b] kapat"}
+			hints = []string{"[n] new hand", "[+] bet+", "[-] bet-", "[b] close"}
 		}
 	default:
-		hints = []string{"[b] kapat"}
+		hints = []string{"[b] close"}
 	}
 	hintLine := dimStyle.Render(strings.Join(hints, "  "))
 	lines = append(lines, center(hintLine, innerW))

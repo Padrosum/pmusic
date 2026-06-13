@@ -206,7 +206,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.notification = "yt-dlp: " + msg.err.Error()
 		} else {
-			m.notification = "↓ indiriliyor: " + msg.query
+			m.notification = "↓ downloading: " + msg.query
 		}
 		m.notifyUntil = time.Now().Add(8 * time.Second)
 		return m, nil
@@ -635,7 +635,7 @@ func (m *Model) enqueueSelected() {
 			return
 		}
 		m.queue = append(m.queue, tracks...)
-		m.notify(fmt.Sprintf("klasör kuyruğa eklendi: %d parça (%d)", len(tracks), len(m.queue)))
+		m.notify(fmt.Sprintf("folder queued: %d tracks (%d)", len(tracks), len(m.queue)))
 		return
 	}
 	tracks := m.currentTracks()
@@ -644,7 +644,7 @@ func (m *Model) enqueueSelected() {
 	}
 	t := tracks[m.trackIdx]
 	m.queue = append(m.queue, t)
-	m.notify(fmt.Sprintf("kuyruğa eklendi: %s  (%d)", t.Name, len(m.queue)))
+	m.notify(fmt.Sprintf("queued: %s  (%d)", t.Name, len(m.queue)))
 }
 
 // notify shows msg in the status bar for ~5 seconds.
@@ -1062,7 +1062,7 @@ func (m *Model) runYtDlp(query string) tea.Cmd {
 	musicDir := m.rootDir
 	return func() tea.Msg {
 		if _, err := exec.LookPath("yt-dlp"); err != nil {
-			return ytdlpMsg{query: query, err: fmt.Errorf("yt-dlp bulunamadı — PATH'te kurulu olmalı")}
+			return ytdlpMsg{query: query, err: fmt.Errorf("yt-dlp not found — it must be installed on PATH")}
 		}
 		target := query
 		if !strings.HasPrefix(query, "http://") && !strings.HasPrefix(query, "https://") {
@@ -1085,11 +1085,11 @@ func (m *Model) renderDownload() string {
 	boxW := min(64, m.width-4)
 	m.downloadInput.Width = boxW - 8
 	lines := []string{
-		styleTitle.Render("  ↓ YouTube İndir  "),
+		styleTitle.Render("  ↓ YouTube Download  "),
 		"",
 		"  " + m.downloadInput.View(),
 		"",
-		styleDim.Render("  URL veya arama · Enter:indir  Esc:kapat"),
+		styleDim.Render("  URL or search · Enter:download  Esc:close"),
 	}
 	box := stylePanelActive.Width(boxW).Render(strings.Join(lines, "\n"))
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
@@ -1141,14 +1141,14 @@ func (m *Model) toggleStoreItem() tea.Cmd {
 	}
 	item := visible[m.storeCursor]
 	if !item.Installed {
-		m.notification = item.Name + " kurulu değil — önce pmusic -s çalıştır"
+		m.notification = item.Name + " not installed — run pmusic -s first"
 		m.notifyUntil = time.Now().Add(5 * time.Second)
 		return nil
 	}
 	enabled, _ := pmcfg.LoadEnabled()
 	enabled.Toggle(item.Kind, item.Name)
 	if err := pmcfg.SaveEnabled(enabled); err != nil {
-		m.notification = "kayıt hatası: " + err.Error()
+		m.notification = "save error: " + err.Error()
 		m.notifyUntil = time.Now().Add(5 * time.Second)
 		return nil
 	}
@@ -1193,7 +1193,7 @@ func (m *Model) renderStore() string {
 	}
 
 	var lines []string
-	lines = append(lines, "  "+tab0+"  "+tab1+"   "+styleDim.Render("pmusic -s ile indir"))
+	lines = append(lines, "  "+tab0+"  "+tab1+"   "+styleDim.Render("download with pmusic -s"))
 	lines = append(lines, "")
 
 	boxW := min(66, m.width-4)
@@ -1212,7 +1212,7 @@ func (m *Model) renderStore() string {
 
 		suffix := ""
 		if !item.Installed {
-			suffix = styleDim.Render(" [kurulu değil]")
+			suffix = styleDim.Render(" [not installed]")
 		}
 
 		descW := contentW - 2 - 24
@@ -1232,7 +1232,7 @@ func (m *Model) renderStore() string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, styleDim.Render("  Space:toggle  h/l:sekme  g/q:kapat"))
+	lines = append(lines, styleDim.Render("  Space:toggle  h/l:tabs  g/q:close"))
 
 	content := styleTitle.Render("  Plugin Store  ") + "\n\n" + strings.Join(lines, "\n")
 	box := stylePanelActive.Width(boxW).Render(content)
@@ -1302,11 +1302,11 @@ func (m *Model) renderQueue() string {
 	contentW := boxW - 4
 
 	var lines []string
-	lines = append(lines, "  "+styleDim.Render(fmt.Sprintf("%d parça sırada", len(m.queue))))
+	lines = append(lines, "  "+styleDim.Render(fmt.Sprintf("%d tracks queued", len(m.queue))))
 	lines = append(lines, "")
 
 	if len(m.queue) == 0 {
-		lines = append(lines, styleDim.Render("  kuyruk boş — parça/klasör seç ve [a] ile ekle"))
+		lines = append(lines, styleDim.Render("  queue empty — select a track/folder and press [a]"))
 	} else {
 		// Cap visible rows so the box stays on screen.
 		visible := m.height - 10
@@ -1327,9 +1327,9 @@ func (m *Model) renderQueue() string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, styleDim.Render("  j/k:gez  K/J:taşı  d:sil  c:temizle  Enter:çal  u/q:kapat"))
+	lines = append(lines, styleDim.Render("  j/k:nav  K/J:move  d:remove  c:clear  Enter:play  u/q:close"))
 
-	content := styleTitle.Render("  ♪  Kuyruk  ") + "\n\n" + strings.Join(lines, "\n")
+	content := styleTitle.Render("  ♪  Queue  ") + "\n\n" + strings.Join(lines, "\n")
 	box := stylePanelActive.Width(boxW).Render(content)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 }
@@ -1372,16 +1372,16 @@ func (m *Model) updateBlackjack(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) renderHelp() string {
 	type section struct{ title, bindings string }
 	sections := []section{
-		{"Navigasyon", "j / k      yukarı / aşağı\nh / l      klasörler / parçalar\nEnter      seç ve çal"},
-		{"Oynatma", "Space      duraklat / devam\nn          sonraki parça\np          önceki parça\nr          döngü modu"},
-		{"Kuyruk", "a          seçili parçayı/klasörü kuyruğa ekle\nu          kuyruğu aç / kapat\nK / J      kuyrukta yukarı / aşağı taşı\nd          kuyruktan sil\nc          kuyruğu temizle"},
-		{"Sarma", "[  /  ]    ±5 saniye\n{  /  }    ±30 saniye"},
-		{"Ses", "+  /  =    ses arttır (%10)\n-          ses azalt (%10)"},
-		{"Sistem", "?          bu yardımı göster / kapat\nCtrl+R     Lua config yenile\nq          çık"},
+		{"Navigation", "j / k      up / down\nh / l      folders / tracks\nEnter      select & play"},
+		{"Playback", "Space      pause / resume\nn          next track\np          previous track\nr          loop mode"},
+		{"Queue", "a          queue selected track/folder\nu          open / close queue\nK / J      move up / down in queue\nd          remove from queue\nc          clear queue"},
+		{"Seek", "[  /  ]    ±5 seconds\n{  /  }    ±30 seconds"},
+		{"Volume", "+  /  =    volume up (10%)\n-          volume down (10%)"},
+		{"System", "?          toggle this help\nCtrl+R     reload Lua config\nq          quit"},
 	}
 
 	var lines []string
-	lines = append(lines, styleTitle.Render("  ♪  Klavye Kısayolları  "))
+	lines = append(lines, styleTitle.Render("  ♪  Keyboard Shortcuts  "))
 	lines = append(lines, "")
 	for _, s := range sections {
 		lines = append(lines, stylePlaying.Render("  "+s.title))
@@ -1390,7 +1390,7 @@ func (m *Model) renderHelp() string {
 		}
 		lines = append(lines, "")
 	}
-	lines = append(lines, styleDim.Render("  [ ? ] veya [ q ] tuşuyla kapat"))
+	lines = append(lines, styleDim.Render("  close with [ ? ] or [ q ]"))
 
 	content := strings.Join(lines, "\n")
 	boxW := min(62, m.width-4)
