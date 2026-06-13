@@ -58,8 +58,10 @@ type Engine struct {
 	currentPath   string
 	currentFolder string
 
-	onSongChange  *glua.LFunction
-	onStateChange *glua.LFunction
+	// Multiple plugins (and init.lua) may each register a hook; all are called
+	// in registration order rather than the last one overwriting the others.
+	onSongChange  []*glua.LFunction
+	onStateChange []*glua.LFunction
 }
 
 // New creates an Engine with the default theme and empty keymaps.
@@ -194,15 +196,17 @@ func (e *Engine) CallOnSongChange(name, path, folder string) {
 	e.currentName = name
 	e.currentPath = path
 	e.currentFolder = folder
-	if e.onSongChange == nil || e.L == nil {
+	if len(e.onSongChange) == 0 || e.L == nil {
 		return
 	}
 	t := e.L.NewTable()
 	e.L.SetField(t, "name", glua.LString(name))
 	e.L.SetField(t, "path", glua.LString(path))
 	e.L.SetField(t, "folder", glua.LString(folder))
-	if err := e.L.CallByParam(glua.P{Fn: e.onSongChange, NRet: 0, Protect: true}, t); err != nil {
-		e.pendingNotify = "lua on_song_change: " + err.Error()
+	for _, fn := range e.onSongChange {
+		if err := e.L.CallByParam(glua.P{Fn: fn, NRet: 0, Protect: true}, t); err != nil {
+			e.pendingNotify = "lua on_song_change: " + err.Error()
+		}
 	}
 }
 
@@ -211,11 +215,13 @@ func (e *Engine) CallOnSongChange(name, path, folder string) {
 func (e *Engine) CallOnStateChange(state string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.onStateChange == nil || e.L == nil {
+	if len(e.onStateChange) == 0 || e.L == nil {
 		return
 	}
-	if err := e.L.CallByParam(glua.P{Fn: e.onStateChange, NRet: 0, Protect: true}, glua.LString(state)); err != nil {
-		e.pendingNotify = "lua on_state_change: " + err.Error()
+	for _, fn := range e.onStateChange {
+		if err := e.L.CallByParam(glua.P{Fn: fn, NRet: 0, Protect: true}, glua.LString(state)); err != nil {
+			e.pendingNotify = "lua on_state_change: " + err.Error()
+		}
 	}
 }
 

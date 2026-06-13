@@ -190,11 +190,13 @@ func isBlackjack(cards []Card) bool {
 }
 
 func (g *Game) Deal() {
-	if g.Bet > g.Balance {
-		g.Bet = g.Balance
-	}
+	// Enforce the table minimum first, then cap at the balance so a short stack
+	// goes all-in rather than wagering more chips than it actually has.
 	if g.Bet < 10 {
 		g.Bet = 10
+	}
+	if g.Bet > g.Balance {
+		g.Bet = g.Balance
 	}
 
 	if len(g.deck) < 10 {
@@ -222,7 +224,9 @@ func (g *Game) Deal() {
 	if pBJ {
 		g.revealDealer()
 		g.Result = ResultBlackjack
-		winnings := g.Bet + g.Bet*3/2
+		// Natural blackjack pays 3:2 — the player gains 1.5× the bet
+		// (the wager itself is never deducted in this model).
+		winnings := g.Bet * 3 / 2
 		g.Balance += winnings
 		g.Message = "♠ BLACKJACK! +" + formatMoney(g.Bet*3/2) + " kazandın!"
 		g.Phase = PhaseResult
@@ -280,13 +284,13 @@ func (g *Game) Double() {
 	if g.Phase != PhasePlaying || len(g.PlayerHand) != 2 {
 		return
 	}
-	actualBet := g.Bet
+	// Remember the original wager so the next hand isn't silently doubled.
+	originalBet := g.Bet
 	if g.Bet*2 <= g.Balance {
-		actualBet = g.Bet * 2
+		g.Bet = g.Bet * 2
 	} else {
-		actualBet = g.Balance
+		g.Bet = g.Balance
 	}
-	g.Bet = actualBet
 	g.DoubledDown = true
 	g.PlayerHand = append(g.PlayerHand, g.drawCard())
 	if g.PlayerValue() > 21 {
@@ -300,11 +304,13 @@ func (g *Game) Double() {
 		} else {
 			g.Message = "Double — Battın! -" + formatMoney(g.Bet) + "  [n] yeni el"
 		}
+		g.Bet = originalBet
 		return
 	}
 	g.revealDealer()
 	g.runDealer()
 	g.settle()
+	g.Bet = originalBet
 }
 
 func (g *Game) runDealer() {

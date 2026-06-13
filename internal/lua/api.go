@@ -113,14 +113,14 @@ func (e *Engine) luaRegisterKeymap(L *glua.LState) int {
 // pmusic.on_song_change(function(track) ... end)
 // track = { name: string, path: string, folder: string }
 func (e *Engine) luaOnSongChange(L *glua.LState) int {
-	e.onSongChange = L.CheckFunction(1)
+	e.onSongChange = append(e.onSongChange, L.CheckFunction(1))
 	return 0
 }
 
 // pmusic.on_state_change(function(state) ... end)
 // state = "playing" | "paused" | "stopped"
 func (e *Engine) luaOnStateChange(L *glua.LState) int {
-	e.onStateChange = L.CheckFunction(1)
+	e.onStateChange = append(e.onStateChange, L.CheckFunction(1))
 	return 0
 }
 

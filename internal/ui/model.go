@@ -91,6 +91,12 @@ type Model struct {
 	showBlackjack bool
 	bjGame        *blackjack.Game
 
+	// Play queue (session-only, in-memory). Queued tracks take priority over
+	// sequential auto-advance; see playFromQueue.
+	queue       []pfs.Track
+	showQueue   bool
+	queueCursor int
+
 	watcher *watcher.Watcher
 	rootDir string
 
@@ -266,6 +272,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			if m.loop {
 				cmd = m.replayCurrent()
+			} else if c := m.playFromQueue(); c != nil {
+				cmd = c
 			} else {
 				cmd = m.playNext()
 			}
@@ -284,6 +292,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Store overlay intercepts all keys.
 		if m.showStore {
 			return m.handleStore(msg)
+		}
+
+		// Queue overlay intercepts all keys.
+		if m.showQueue {
+			return m.handleQueue(msg)
 		}
 
 		// Help overlay intercepts all keys — only ? and q close it.
@@ -401,6 +414,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.bjGame = blackjack.New()
 			}
 			m.showBlackjack = true
+
+		case key.Matches(msg, keys.AddQueue):
+			m.enqueueSelected()
+
+		case key.Matches(msg, keys.Queue):
+			m.showQueue = true
+			m.queueCursor = 0
 
 		}
 	}
@@ -594,6 +614,67 @@ func (m *Model) replayCurrent() tea.Cmd {
 	}
 }
 
+// locateTrack returns the folder/track indices of the track with the given path.
+func (m *Model) locateTrack(path string) (int, int, bool) {
+	for fi, f := range m.folders {
+		for ti, t := range f.Tracks {
+			if t.Path == path {
+				return fi, ti, true
+			}
+		}
+	}
+	return 0, 0, false
+}
+
+// enqueueSelected appends the cursor's track (or the whole highlighted folder)
+// to the play queue and shows a confirmation notification.
+func (m *Model) enqueueSelected() {
+	if m.focused == panelFolders {
+		tracks := m.currentTracks()
+		if len(tracks) == 0 {
+			return
+		}
+		m.queue = append(m.queue, tracks...)
+		m.notify(fmt.Sprintf("klasör kuyruğa eklendi: %d parça (%d)", len(tracks), len(m.queue)))
+		return
+	}
+	tracks := m.currentTracks()
+	if len(tracks) == 0 || m.trackIdx >= len(tracks) {
+		return
+	}
+	t := tracks[m.trackIdx]
+	m.queue = append(m.queue, t)
+	m.notify(fmt.Sprintf("kuyruğa eklendi: %s  (%d)", t.Name, len(m.queue)))
+}
+
+// notify shows msg in the status bar for ~5 seconds.
+func (m *Model) notify(msg string) {
+	m.notification = msg
+	m.notifyUntil = time.Now().Add(5 * time.Second)
+}
+
+// playFromQueue pops the head of the queue and plays it, returning nil when the
+// queue is empty so the caller can fall back to sequential auto-advance.
+func (m *Model) playFromQueue() tea.Cmd {
+	if len(m.queue) == 0 {
+		return nil
+	}
+	t := m.queue[0]
+	m.queue = m.queue[1:]
+	m.nowPlaying = &t
+	// Anchor sequential fallback to this track's library position when possible.
+	if fi, ti, ok := m.locateTrack(t.Path); ok {
+		m.nowFolder = fi
+		m.nowTrack = ti
+	}
+	m.player.MarkPending()
+	path := t.Path
+	return func() tea.Msg {
+		m.player.Play(path)
+		return tickMsg(time.Now())
+	}
+}
+
 func (m *Model) rescan() {
 	root, err := pfs.Scan(m.rootDir)
 	if err != nil {
@@ -685,6 +766,9 @@ func (m *Model) View() string {
 	}
 	if m.showStore {
 		return m.renderStore()
+	}
+	if m.showQueue {
+		return m.renderQueue()
 	}
 	if m.showHelp {
 		return m.renderHelp()
@@ -874,7 +958,7 @@ func (m *Model) renderBottom(w int) string {
 	hints := []string{
 		"j/k:move", "h/l:panel", "enter:play", "spc:pause",
 		"n/p:next/prev", "r:loop", "+/-:vol", "[/]:seek5s",
-		"Y:yt-dlp", "g:store", "b:blackjack", "?:help", "q:quit",
+		"a:queue+", "u:queue", "Y:yt-dlp", "g:store", "b:blackjack", "?:help", "q:quit",
 	}
 	var hintParts []string
 	for _, h := range hints {
@@ -1155,6 +1239,101 @@ func (m *Model) renderStore() string {
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 }
 
+// handleQueue processes key input while the queue overlay is active.
+func (m *Model) handleQueue(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	n := len(m.queue)
+	switch {
+	case key.Matches(msg, keys.Queue), key.Matches(msg, keys.Quit):
+		m.showQueue = false
+	case key.Matches(msg, keys.Down):
+		if m.queueCursor < n-1 {
+			m.queueCursor++
+		}
+	case key.Matches(msg, keys.Up):
+		if m.queueCursor > 0 {
+			m.queueCursor--
+		}
+	case msg.String() == "J": // move selected item down
+		if m.queueCursor < n-1 {
+			m.queue[m.queueCursor], m.queue[m.queueCursor+1] = m.queue[m.queueCursor+1], m.queue[m.queueCursor]
+			m.queueCursor++
+		}
+	case msg.String() == "K": // move selected item up
+		if m.queueCursor > 0 {
+			m.queue[m.queueCursor], m.queue[m.queueCursor-1] = m.queue[m.queueCursor-1], m.queue[m.queueCursor]
+			m.queueCursor--
+		}
+	case msg.String() == "d", msg.String() == "x": // remove selected
+		if n > 0 && m.queueCursor < n {
+			m.queue = append(m.queue[:m.queueCursor], m.queue[m.queueCursor+1:]...)
+			if m.queueCursor >= len(m.queue) {
+				m.queueCursor = max(0, len(m.queue)-1)
+			}
+		}
+	case msg.String() == "c": // clear the queue
+		m.queue = nil
+		m.queueCursor = 0
+	case key.Matches(msg, keys.Enter): // play the selected item now
+		if n > 0 && m.queueCursor < n {
+			t := m.queue[m.queueCursor]
+			m.queue = append(m.queue[:m.queueCursor], m.queue[m.queueCursor+1:]...)
+			if m.queueCursor >= len(m.queue) {
+				m.queueCursor = max(0, len(m.queue)-1)
+			}
+			m.nowPlaying = &t
+			if fi, ti, ok := m.locateTrack(t.Path); ok {
+				m.nowFolder = fi
+				m.nowTrack = ti
+			}
+			m.player.MarkPending()
+			path := t.Path
+			return m, func() tea.Msg {
+				m.player.Play(path)
+				return tickMsg(time.Now())
+			}
+		}
+	}
+	return m, nil
+}
+
+// renderQueue returns the centered queue overlay listing all queued tracks.
+func (m *Model) renderQueue() string {
+	boxW := min(66, m.width-4)
+	contentW := boxW - 4
+
+	var lines []string
+	lines = append(lines, "  "+styleDim.Render(fmt.Sprintf("%d parça sırada", len(m.queue))))
+	lines = append(lines, "")
+
+	if len(m.queue) == 0 {
+		lines = append(lines, styleDim.Render("  kuyruk boş — parça/klasör seç ve [a] ile ekle"))
+	} else {
+		// Cap visible rows so the box stays on screen.
+		visible := m.height - 10
+		if visible < 1 {
+			visible = 1
+		}
+		offset := scrollOffset(m.queueCursor, visible)
+		for i := offset; i < len(m.queue) && i < offset+visible; i++ {
+			t := m.queue[i]
+			num := fmt.Sprintf("%3d. ", i+1)
+			name := truncate(t.Name, contentW-6)
+			if i == m.queueCursor {
+				lines = append(lines, styleSelected.Width(contentW).Render(num+name))
+			} else {
+				lines = append(lines, styleDim.Render(num+name))
+			}
+		}
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, styleDim.Render("  j/k:gez  K/J:taşı  d:sil  c:temizle  Enter:çal  u/q:kapat"))
+
+	content := styleTitle.Render("  ♪  Kuyruk  ") + "\n\n" + strings.Join(lines, "\n")
+	box := stylePanelActive.Width(boxW).Render(content)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
+}
+
 // updateBlackjack handles all key input while the blackjack overlay is active.
 func (m *Model) updateBlackjack(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	g := m.bjGame
@@ -1195,6 +1374,7 @@ func (m *Model) renderHelp() string {
 	sections := []section{
 		{"Navigasyon", "j / k      yukarı / aşağı\nh / l      klasörler / parçalar\nEnter      seç ve çal"},
 		{"Oynatma", "Space      duraklat / devam\nn          sonraki parça\np          önceki parça\nr          döngü modu"},
+		{"Kuyruk", "a          seçili parçayı/klasörü kuyruğa ekle\nu          kuyruğu aç / kapat\nK / J      kuyrukta yukarı / aşağı taşı\nd          kuyruktan sil\nc          kuyruğu temizle"},
 		{"Sarma", "[  /  ]    ±5 saniye\n{  /  }    ±30 saniye"},
 		{"Ses", "+  /  =    ses arttır (%10)\n-          ses azalt (%10)"},
 		{"Sistem", "?          bu yardımı göster / kapat\nCtrl+R     Lua config yenile\nq          çık"},

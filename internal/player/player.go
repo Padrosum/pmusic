@@ -91,6 +91,8 @@ func (p *Player) Play(path string) error {
 
 	f, err := os.Open(path)
 	if err != nil {
+		// MarkPending may have set Playing; reset so auto-advance can move on.
+		p.markStopped()
 		return err
 	}
 
@@ -107,10 +109,12 @@ func (p *Player) Play(path string) error {
 		stream, format, err = wav.Decode(f)
 	default:
 		f.Close()
+		p.markStopped()
 		return nil
 	}
 	if err != nil {
 		f.Close()
+		p.markStopped()
 		return err
 	}
 
@@ -179,6 +183,15 @@ func (p *Player) Stop() {
 func (p *Player) MarkPending() {
 	p.mu.Lock()
 	p.state = Playing
+	p.mu.Unlock()
+}
+
+// markStopped resets the state to Stopped. Used by Play when a track fails to
+// open or decode, so the tick-based auto-advance moves past the dead track
+// instead of freezing on a phantom "Playing" state set by MarkPending.
+func (p *Player) markStopped() {
+	p.mu.Lock()
+	p.state = Stopped
 	p.mu.Unlock()
 }
 
