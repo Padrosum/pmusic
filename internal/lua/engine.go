@@ -24,19 +24,19 @@ type Theme struct {
 	Key          string
 }
 
-// DefaultTheme returns the built-in Nord color palette.
+// DefaultTheme returns a modern vibrant color palette (Catppuccin Macchiato inspired).
 func DefaultTheme() Theme {
 	return Theme{
-		Accent:       "#88C0D0",
-		Dim:          "#4C566A",
-		SelectedBg:   "#434C5E",
-		NowPlaying:   "#A3BE8C",
-		Border:       "#4C566A",
-		BorderActive: "#88C0D0",
-		Title:        "#88C0D0",
-		StatusBg:     "#3B4252",
-		PanelBg:      "#2E3440",
-		Key:          "#81A1C1",
+		Accent:       "#8AADF4", // Macchiato Blue
+		Dim:          "#5B6078", // Surface 2
+		SelectedBg:   "#363A4F", // Surface 0
+		NowPlaying:   "#A6DA95", // Green
+		Border:       "#494D64", // Surface 1
+		BorderActive: "#8AADF4", // Blue
+		Title:        "#F5A97F", // Peach
+		StatusBg:     "#1E2030", // Mantle
+		PanelBg:      "#24273A", // Base
+		Key:          "#C6A0F6", // Mauve
 	}
 }
 

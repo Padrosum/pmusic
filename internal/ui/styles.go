@@ -6,6 +6,7 @@ import (
 )
 
 var (
+	styleHeader        lipgloss.Style
 	stylePanel         lipgloss.Style
 	stylePanelBorder   lipgloss.Style
 	stylePanelActive   lipgloss.Style
@@ -43,18 +44,19 @@ func applyTheme(t luaeng.Theme) {
 	ttl := lipgloss.Color(t.Title)
 	sbg := lipgloss.Color(t.StatusBg)
 	k := lipgloss.Color(t.Key)
-	fg := lipgloss.Color("#D8DEE9")
-	fg2 := lipgloss.Color("#ECEFF4")
-	amber := lipgloss.Color("#EBCB8B")
+	fg := lipgloss.Color("#CAD3F5") // Macchiato Text
+	fg2 := lipgloss.Color("#F4DBD6") // Macchiato Rosewater
+	amber := lipgloss.Color("#EED49F") // Macchiato Yellow
 
+	styleHeader = lipgloss.NewStyle().Background(accent).Foreground(lipgloss.Color("#181825")).Bold(true).Padding(0, 1)
 	stylePanel = lipgloss.NewStyle().Background(bg).Foreground(fg)
-	stylePanelBorder = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(bdr).Background(bg)
-	stylePanelActive = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(bdrA).Background(bg)
+	stylePanelBorder = lipgloss.NewStyle().Border(lipgloss.ThickBorder()).BorderForeground(bdr).Background(bg).Padding(0, 1)
+	stylePanelActive = lipgloss.NewStyle().Border(lipgloss.ThickBorder()).BorderForeground(bdrA).Background(bg).Padding(0, 1)
 	styleTitle = lipgloss.NewStyle().Foreground(ttl).Bold(true).Padding(0, 1)
-	styleSelected = lipgloss.NewStyle().Background(sel).Foreground(fg2).Bold(true)
-	styleNormal = lipgloss.NewStyle().Foreground(fg)
-	styleDim = lipgloss.NewStyle().Foreground(dim)
-	styleNowPlaying = lipgloss.NewStyle().Foreground(np).Bold(true)
+	styleSelected = lipgloss.NewStyle().Background(sel).Foreground(fg2).Bold(true).Padding(0, 1)
+	styleNormal = lipgloss.NewStyle().Foreground(fg).Padding(0, 1)
+	styleDim = lipgloss.NewStyle().Foreground(dim).Padding(0, 1)
+	styleNowPlaying = lipgloss.NewStyle().Foreground(np).Bold(true).Padding(0, 1)
 	styleProgress = lipgloss.NewStyle().Foreground(accent)
 	styleProgressFill = lipgloss.NewStyle().Foreground(accent)
 	styleProgressEmpty = lipgloss.NewStyle().Foreground(dim)
@@ -63,6 +65,6 @@ func applyTheme(t luaeng.Theme) {
 	styleStopped = lipgloss.NewStyle().Foreground(dim)
 	styleKey = lipgloss.NewStyle().Foreground(k).Bold(true)
 	styleStatusBar = lipgloss.NewStyle().Background(sbg).Foreground(fg).Padding(0, 1)
-	styleNotify = lipgloss.NewStyle().Foreground(amber).Bold(true)
+	styleNotify = lipgloss.NewStyle().Foreground(amber).Bold(true).Padding(0, 1)
 	styleMascot = lipgloss.NewStyle().Foreground(accent).Bold(true)
 }

@@ -26,6 +26,7 @@ type keyMap struct {
 	Blackjack  key.Binding
 	AddQueue   key.Binding
 	Queue      key.Binding
+	Search     key.Binding
 }
 
 var keys = keyMap{
@@ -52,4 +53,5 @@ var keys = keyMap{
 	Blackjack: key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "blackjack")),
 	AddQueue:  key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "queue+")),
 	Queue:     key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "queue")),
+	Search:    key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 }

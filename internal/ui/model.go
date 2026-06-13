@@ -88,6 +88,9 @@ type Model struct {
 	showDownload  bool
 	downloadInput textinput.Model
 
+	showSearch    bool
+	searchInput   textinput.Model
+
 	showBlackjack bool
 	bjGame        *blackjack.Game
 
@@ -122,12 +125,23 @@ func New(rootDir string) (*Model, error) {
 	ti := textinput.New()
 	ti.Placeholder = "YouTube URL or search query..."
 	ti.CharLimit = 300
+
+	si := textinput.New()
+	si.Placeholder = "Search tracks (/)..."
+	si.CharLimit = 100
+
 	m := &Model{
 		root:          root,
 		folders:       folders,
 		player:        p,
 		rootDir:       rootDir,
 		downloadInput: ti,
+		searchInput:   si,
+	}
+
+	q, _ := pmcfg.LoadQueue()
+	if q != nil {
+		m.queue = q
 	}
 
 	p.SetOnDone(func() {
@@ -167,6 +181,28 @@ func tickCmd() tea.Cmd {
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.showSearch {
+		var inputCmd tea.Cmd
+		m.searchInput, inputCmd = m.searchInput.Update(msg)
+		switch msg := msg.(type) {
+		case tea.WindowSizeMsg:
+			m.width = msg.Width
+			m.height = msg.Height
+		case tickMsg:
+			return m, tea.Batch(tickCmd(), inputCmd)
+		case tea.KeyMsg:
+			switch msg.Type {
+			case tea.KeyEsc, tea.KeyEnter:
+				m.showSearch = false
+				m.searchInput.Blur()
+				return m, nil
+			}
+		}
+		// Reset track index when search query changes
+		m.trackIdx = 0
+		return m, inputCmd
+	}
+
 	if m.showDownload {
 		var inputCmd tea.Cmd
 		m.downloadInput, inputCmd = m.downloadInput.Update(msg)
@@ -422,6 +458,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showQueue = true
 			m.queueCursor = 0
 
+		case key.Matches(msg, keys.Search):
+			m.showSearch = true
+			m.searchInput.SetValue("")
+			return m, m.searchInput.Focus()
+
 		}
 	}
 	return m, nil
@@ -506,7 +547,19 @@ func (m *Model) currentTracks() []pfs.Track {
 	if len(m.folders) == 0 {
 		return nil
 	}
-	return m.folders[m.folderIdx].Tracks
+	query := strings.ToLower(m.searchInput.Value())
+	if query == "" {
+		return m.folders[m.folderIdx].Tracks
+	}
+	var filtered []pfs.Track
+	for _, f := range m.folders {
+		for _, t := range f.Tracks {
+			if strings.Contains(strings.ToLower(t.Name), query) {
+				filtered = append(filtered, t)
+			}
+		}
+	}
+	return filtered
 }
 
 func (m *Model) playSelected() tea.Cmd {
@@ -516,8 +569,13 @@ func (m *Model) playSelected() tea.Cmd {
 	}
 	t := tracks[m.trackIdx]
 	m.nowPlaying = &t
-	m.nowFolder = m.folderIdx
-	m.nowTrack = m.trackIdx
+	if fi, ti, ok := m.locateTrack(t.Path); ok {
+		m.nowFolder = fi
+		m.nowTrack = ti
+	} else {
+		m.nowFolder = m.folderIdx
+		m.nowTrack = m.trackIdx
+	}
 	// Mark pending before goroutine starts so tick doesn't trigger auto-advance.
 	m.player.MarkPending()
 	path := t.Path
@@ -626,9 +684,14 @@ func (m *Model) locateTrack(path string) (int, int, bool) {
 	return 0, 0, false
 }
 
+func (m *Model) saveQueue() {
+	pmcfg.SaveQueue(m.queue)
+}
+
 // enqueueSelected appends the cursor's track (or the whole highlighted folder)
 // to the play queue and shows a confirmation notification.
 func (m *Model) enqueueSelected() {
+	defer m.saveQueue()
 	if m.focused == panelFolders {
 		tracks := m.currentTracks()
 		if len(tracks) == 0 {
@@ -659,6 +722,7 @@ func (m *Model) playFromQueue() tea.Cmd {
 	if len(m.queue) == 0 {
 		return nil
 	}
+	defer m.saveQueue()
 	t := m.queue[0]
 	m.queue = m.queue[1:]
 	m.nowPlaying = &t
@@ -706,18 +770,22 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 	col, row := msg.X, msg.Y
 	leftW := m.width / 3
-	// mainH = m.height - bottomH(4) - 2; panel content rows start at screen row 2.
-	mainH := m.height - 4 - 2
+	
+	header := styleHeader.Width(m.width).Render(" ♪ pmusic")
+	topH := lipgloss.Height(header)
+
+	// mainH = m.height - bottomH(4) - topH - 2
+	mainH := m.height - 4 - topH - 2
 	innerH := mainH - 2
 	visibleRows := innerH - 1 // title row consumed
 
-	if row <= 0 || row > mainH {
+	if row < topH || row >= topH+mainH {
 		return m, nil
 	}
 
 	if col < leftW {
-		// Left panel (folders): content begins at screen row 2.
-		itemRow := row - 2
+		// Left panel (folders): content begins at screen row topH + 2.
+		itemRow := row - (topH + 2)
 		if itemRow < 0 {
 			m.focused = panelFolders
 			return m, nil
@@ -731,7 +799,7 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 	} else {
 		// Right panel (tracks).
-		itemRow := row - 2
+		itemRow := row - (topH + 2)
 		if itemRow < 0 {
 			m.focused = panelTracks
 			return m, nil
@@ -777,8 +845,11 @@ func (m *Model) View() string {
 		return blackjack.Render(m.bjGame, m.width, m.height)
 	}
 
+	header := styleHeader.Width(m.width).Render(" ♪ pmusic")
+	
 	bottomH := 4
-	mainH := m.height - bottomH - 2
+	topH := lipgloss.Height(header)
+	mainH := m.height - bottomH - topH - 2
 
 	leftW := m.width / 3
 	rightW := m.width - leftW - 1
@@ -786,10 +857,10 @@ func (m *Model) View() string {
 	left := m.renderFolders(leftW, mainH)
 	right := m.renderTracks(rightW, mainH)
 
-	top := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+	middle := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 	bottom := m.renderBottom(m.width)
 
-	return lipgloss.JoinVertical(lipgloss.Left, top, bottom)
+	return lipgloss.JoinVertical(lipgloss.Left, header, middle, bottom)
 }
 
 func (m *Model) renderFolders(w, h int) string {
@@ -862,7 +933,14 @@ func (m *Model) renderTracks(w, h int) string {
 	if len(m.folders) > 0 {
 		folderName = m.folders[m.folderIdx].Name
 	}
-	title := styleTitle.Render("  " + truncate(folderName, trackW-6))
+	
+	var title string
+	if m.showSearch || m.searchInput.Value() != "" {
+		title = styleTitle.Render("  " + m.searchInput.View())
+	} else {
+		title = styleTitle.Render("  " + truncate(folderName, trackW-6))
+	}
+
 	sb.WriteString(padRight(title, innerW-mascotW) + catStr[0] + "\n")
 
 	tracks := m.currentTracks()
@@ -983,8 +1061,8 @@ func renderProgress(w int, ratio float64) string {
 	if filled > w {
 		filled = w
 	}
-	bar := styleProgressFill.Render(strings.Repeat("━", filled)) +
-		styleProgressEmpty.Render(strings.Repeat("─", w-filled))
+	bar := styleProgressFill.Render(strings.Repeat("█", filled)) +
+		styleProgressEmpty.Render(strings.Repeat("░", w-filled))
 	return "  " + bar
 }
 
@@ -1241,6 +1319,7 @@ func (m *Model) renderStore() string {
 
 // handleQueue processes key input while the queue overlay is active.
 func (m *Model) handleQueue(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	defer m.saveQueue()
 	n := len(m.queue)
 	switch {
 	case key.Matches(msg, keys.Queue), key.Matches(msg, keys.Quit):
