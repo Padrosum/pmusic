@@ -91,7 +91,7 @@ On first startup a setup screen appears asking for your music folder path. This 
 | `+` / `=` | Volume up (+10%) |
 | `-` | Volume down (−10%) |
 | `?` | Show / hide help overlay |
-| `Y` | Open YouTube download panel |
+| `Y` | Open music search and download screen |
 | `g` | Open plugin / theme store |
 | `Ctrl+R` | Reload Lua config (hot-reload) |
 | `q` / `Ctrl+C` | Quit |
@@ -104,23 +104,31 @@ On first startup a setup screen appears asking for your music folder path. This 
 | Left click on folder | Select folder |
 | Scroll wheel | Navigate up / down |
 
-## YouTube Download
+## Music Search and Download
 
-Press `Y` to open the download panel. Type a YouTube URL to download that exact video, or type any search text to download the first matching result.
+Press `Y` to open the music search screen. Enter a song or artist name to search YouTube and inspect up to 10 results before downloading anything.
 
 ```
-╭── ↓ YouTube İndir ──────────────────────────────╮
-│                                                 │
-│  https://www.youtube.com/watch?v=...            │
-│                                                 │
-│  URL veya arama · Enter:indir  Esc:kapat        │
-╰─────────────────────────────────────────────────╯
+╭── ♫ Music Search ─────────────────────────────────────╮
+│                                                       │
+│  Search: metallica fade to black                      │
+│  Source: YouTube (text search)                        │
+│                                                       │
+│  › Metallica - Fade to Black                          │
+│      Metallica · 6:57 · YouTube                       │
+│                                                       │
+│  j/k:select  Enter:download  /:new search  Esc/q:close│
+╰───────────────────────────────────────────────────────╯
 ```
 
-- **URL** (starts with `http`) — downloads that exact video
-- **Search text** — searches YouTube and downloads the first result
+- **Search text** — lists YouTube results; use `j` / `k` or the arrow keys to select one, then press `Enter` to download it
+- **URL** (starts with `http://` or `https://`) — previews and downloads that URL directly through yt-dlp
+- **New search** — press `/` from the result screen to edit the query again
+- **Close** — press `Esc` or `q`; an active download continues safely in the background
 
-Requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) in `$PATH`. The download runs in the background; the filesystem watcher picks up the new MP3 automatically.
+Text search is YouTube-only in this version. Direct URLs may point to YouTube, SoundCloud, or any other source supported by yt-dlp; pMusic does not claim that those sites support text search.
+
+Requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) in `$PATH` (and its normal audio conversion dependencies). Downloads run in the background and are written to the configured local music folder. The filesystem watcher adds the resulting MP3 to the library, and pMusic plays it as a local file—it never streams the remote result.
 
 ## Plugin Store
 

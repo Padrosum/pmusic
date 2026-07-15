@@ -42,10 +42,10 @@ func TestSmallTerminalFallback(t *testing.T) {
 	}
 }
 
-func TestHelpIncludesYtDlpShortcut(t *testing.T) {
+func TestHelpIncludesMusicSearchShortcut(t *testing.T) {
 	m := &Model{width: 80, height: 40}
 	view := m.renderHelp()
-	if !strings.Contains(view, "Y          YouTube download (yt-dlp)") {
-		t.Fatalf("yt-dlp shortcut missing from help")
+	if !strings.Contains(view, "Y          search and download music") {
+		t.Fatalf("music search shortcut missing from help")
 	}
 }

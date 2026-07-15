@@ -11,7 +11,7 @@ library, plays `.mp3` / `.flac` / `.wav`, reads embedded tags, and adds:
 
 - A **Lua plugin & theme engine** (gopher-lua) with hot-reload.
 - A built-in **plugin "store"** that downloads plugins/themes from GitHub.
-- **yt-dlp** integration to download audio from a URL or search query.
+- **yt-dlp** integration to search YouTube, preview results, and download a selected URL as local audio.
 - A **play queue** (session-only).
 - A **Blackjack** mini-game.
 
@@ -50,9 +50,11 @@ runs first-run setup if no music dir is saved. Everything else lives under
 
 ## Key patterns (follow these when extending)
 
-- **Overlays** use a `show<X> bool` field plus a `handle<X>(msg)` / `render<X>()`
+- **Overlays** generally use a `show<X> bool` field plus a `handle<X>(msg)` / `render<X>()`
   pair, intercepted at the top of `Update`'s `KeyMsg` branch and short-circuited
-  in `View()`. Existing overlays: store, help, blackjack, queue, download.
+  in `View()`. Existing overlays: store, help, blackjack, queue, and music search.
+  Music search additionally has an explicit input/loading/results/downloading/
+  success/error state machine in `music_search.go`.
 - **Starting playback** always follows: `m.player.MarkPending()` (sets state to
   Playing so the tick loop doesn't auto-advance during the goroutine window),
   then return a `tea.Cmd` that calls `m.player.Play(path)` and returns
@@ -77,7 +79,7 @@ downloads. `pmusic` API (see `internal/lua/api.go`): `set_theme`, `get_theme`,
 
 `j/k` move · `h/l` folders/tracks · `Enter` play · `Space` pause · `n/p`
 next/prev · `r` loop · `+/-` volume · `[ ]` ±5s · `{ }` ±30s · `a` queue add ·
-`u` queue overlay · `Y` yt-dlp · `g` store · `b` blackjack · `?` help ·
+`u` queue overlay · `Y` music search/download · `g` store · `b` blackjack · `?` help ·
 `Ctrl+R` reload Lua · `q` quit. Lua keymaps are checked before built-ins
 (except the Download/`Y` panel).
 

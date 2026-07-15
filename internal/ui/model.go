@@ -1,10 +1,10 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -15,10 +15,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/padros/pmusic/internal/blackjack"
 	pmcfg "github.com/padros/pmusic/internal/config"
+	pmdownload "github.com/padros/pmusic/internal/download"
 	pfs "github.com/padros/pmusic/internal/fs"
 	luaeng "github.com/padros/pmusic/internal/lua"
 	"github.com/padros/pmusic/internal/meta"
 	"github.com/padros/pmusic/internal/player"
+	pmsearch "github.com/padros/pmusic/internal/search"
 	pmstore "github.com/padros/pmusic/internal/store"
 	"github.com/padros/pmusic/internal/watcher"
 )
@@ -34,12 +36,6 @@ type tickMsg time.Time
 
 // luaReloadedMsg is sent back to the Update loop after a Lua hot-reload attempt.
 type luaReloadedMsg struct{ err error }
-
-// ytdlpMsg is returned when the yt-dlp download has been launched.
-type ytdlpMsg struct {
-	query string
-	err   error
-}
 
 // mascot animation constants — each frame line is rendered at fixed width via lipgloss.
 const mascotW = 8
@@ -86,8 +82,13 @@ type Model struct {
 	storeCursor int
 	storeTab    int // 0=plugins 1=themes
 
-	showDownload  bool
-	downloadInput textinput.Model
+	showMusicSearch bool
+	musicSearch     musicSearchModel
+	searchProvider  pmsearch.Provider
+	urlResolver     pmsearch.URLResolver
+	downloader      *pmdownload.Downloader
+	searchCancel    context.CancelFunc
+	downloadCancel  context.CancelFunc
 
 	showSearch  bool
 	searchInput textinput.Model
@@ -123,22 +124,22 @@ func New(rootDir string) (*Model, error) {
 	folders := pfs.FlatFolders(root)
 
 	p := player.New()
-	ti := textinput.New()
-	ti.Placeholder = "YouTube URL or search query..."
-	ti.CharLimit = 300
-
 	si := textinput.New()
 	si.Placeholder = "Search tracks (/)..."
 	si.CharLimit = 100
 
 	m := &Model{
-		root:          root,
-		folders:       folders,
-		player:        p,
-		rootDir:       rootDir,
-		downloadInput: ti,
-		searchInput:   si,
+		root:        root,
+		folders:     folders,
+		player:      p,
+		rootDir:     rootDir,
+		searchInput: si,
+		musicSearch: newMusicSearchModel(),
+		downloader:  pmdownload.New(),
 	}
+	youtube := pmsearch.NewYouTube()
+	m.searchProvider = youtube
+	m.urlResolver = youtube
 
 	q, _ := pmcfg.LoadQueue()
 	if q != nil {
@@ -182,6 +183,14 @@ func tickCmd() tea.Cmd {
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if cmd, handled := m.handleMusicSearchMessage(msg); handled {
+		return m, cmd
+	}
+
+	if m.showMusicSearch {
+		return m.handleMusicSearch(msg)
+	}
+
 	if m.showSearch {
 		var inputCmd tea.Cmd
 		m.searchInput, inputCmd = m.searchInput.Update(msg)
@@ -204,48 +213,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, inputCmd
 	}
 
-	if m.showDownload {
-		var inputCmd tea.Cmd
-		m.downloadInput, inputCmd = m.downloadInput.Update(msg)
-		switch msg := msg.(type) {
-		case tea.WindowSizeMsg:
-			m.width = msg.Width
-			m.height = msg.Height
-		case tickMsg:
-			return m, tea.Batch(tickCmd(), inputCmd)
-		case tea.KeyMsg:
-			switch msg.Type {
-			case tea.KeyEsc:
-				m.showDownload = false
-				m.downloadInput.Blur()
-				return m, nil
-			case tea.KeyEnter:
-				query := strings.TrimSpace(m.downloadInput.Value())
-				m.showDownload = false
-				m.downloadInput.Blur()
-				if query != "" {
-					return m, m.runYtDlp(query)
-				}
-				return m, nil
-			}
-		}
-		return m, inputCmd
-	}
-
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		return m, nil
-
-	case ytdlpMsg:
-		if msg.err != nil {
-			m.notification = "yt-dlp: " + msg.err.Error()
-		} else {
-			m.notification = "↓ downloading: " + msg.query
-		}
-		m.notifyUntil = time.Now().Add(8 * time.Second)
 		return m, nil
 
 	case luaReloadedMsg:
@@ -352,9 +324,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Built-in Download panel takes priority over any Lua keymap on the same key.
 		if key.Matches(msg, keys.Download) {
-			m.downloadInput.SetValue("")
-			m.showDownload = true
-			return m, m.downloadInput.Focus()
+			return m, m.openMusicSearch()
 		}
 
 		// Check Lua-registered custom keymaps before built-in bindings.
@@ -380,6 +350,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch {
 		case key.Matches(msg, keys.Quit):
+			if m.downloadCancel != nil {
+				m.downloadCancel()
+			}
 			m.player.Stop()
 			if m.watcher != nil {
 				m.watcher.Close()
@@ -488,6 +461,9 @@ func (m *Model) dispatchAction(action string) tea.Cmd {
 	case "reload_lua":
 		return m.reloadLuaCmd()
 	case "quit":
+		if m.downloadCancel != nil {
+			m.downloadCancel()
+		}
 		m.player.Stop()
 		if m.watcher != nil {
 			m.watcher.Close()
@@ -837,8 +813,8 @@ func (m *Model) View() string {
 			"\n" + styleHeaderMeta.Render("Resize to at least 52 × 12")
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 	}
-	if m.showDownload {
-		return m.renderDownload()
+	if m.showMusicSearch {
+		return m.renderMusicSearch()
 	}
 	if m.showStore {
 		return m.renderStore()
@@ -1184,11 +1160,23 @@ func truncate(s string, maxLen int) string {
 	if maxLen <= 0 {
 		return ""
 	}
-	runes := []rune(s)
-	if len(runes) <= maxLen {
+	if lipgloss.Width(s) <= maxLen {
 		return s
 	}
-	return string(runes[:maxLen-1]) + "…"
+	if maxLen == 1 {
+		return "…"
+	}
+	var b strings.Builder
+	width := 0
+	for _, r := range s {
+		runeWidth := lipgloss.Width(string(r))
+		if width+runeWidth > maxLen-1 {
+			break
+		}
+		b.WriteRune(r)
+		width += runeWidth
+	}
+	return b.String() + "…"
 }
 
 // padRight pads s with spaces until its visible width (ANSI-aware) equals width.
@@ -1219,43 +1207,6 @@ func min(a, b int) int {
 		return a
 	}
 	return b
-}
-
-func (m *Model) runYtDlp(query string) tea.Cmd {
-	musicDir := m.rootDir
-	return func() tea.Msg {
-		if _, err := exec.LookPath("yt-dlp"); err != nil {
-			return ytdlpMsg{query: query, err: fmt.Errorf("yt-dlp not found — it must be installed on PATH")}
-		}
-		target := query
-		if !strings.HasPrefix(query, "http://") && !strings.HasPrefix(query, "https://") {
-			target = "ytsearch1:" + query
-		}
-		cmd := exec.Command("yt-dlp",
-			"-x", "--audio-format", "mp3", "--audio-quality", "0",
-			"-o", filepath.Join(musicDir, "%(title)s.%(ext)s"),
-			target,
-		)
-		if err := cmd.Start(); err != nil {
-			return ytdlpMsg{query: query, err: err}
-		}
-		go cmd.Wait()
-		return ytdlpMsg{query: query}
-	}
-}
-
-func (m *Model) renderDownload() string {
-	boxW := min(64, m.width-4)
-	m.downloadInput.Width = boxW - 8
-	lines := []string{
-		styleTitle.Render("  ↓ YouTube Download  "),
-		"",
-		"  " + m.downloadInput.View(),
-		"",
-		styleDim.Render("  URL or search · Enter:download  Esc:close"),
-	}
-	box := stylePanelActive.Width(boxW).Render(strings.Join(lines, "\n"))
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 }
 
 func luaConfigDir() (string, error) {
@@ -1541,7 +1492,7 @@ func (m *Model) renderHelp() string {
 		{"Queue", "a          queue selected track/folder\nu          open / close queue\nK / J      move up / down in queue\nd          remove from queue\nc          clear queue"},
 		{"Seek", "[  /  ]    ±5 seconds\n{  /  }    ±30 seconds"},
 		{"Volume", "+  /  =    volume up (10%)\n-          volume down (10%)"},
-		{"Download", "Y          YouTube download (yt-dlp)"},
+		{"Music Search", "Y          search and download music\n/          new search inside the overlay"},
 		{"System", "?          toggle this help\nCtrl+R     reload Lua config\nq          quit"},
 	}
 
