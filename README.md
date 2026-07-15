@@ -3,16 +3,18 @@
 A terminal-based (TUI) local music player written in Go.
 
 ```text
-┌── Folders ──────────────┬── Jazz ──────────────────────/\_/\──┐
-│  Classic Rock           │    1.  ▶ Kind of Blue        (^.^)  │
-│  Electronic             │    2.    So What              >♪ <  │
-│> Jazz                   │    3.    Freddie Freeloader          │
-│  Lo-fi                  │    4.    Blue in Green               │
-└─────────────────────────┴──────────────────────────────────────┘
-  ▶ Miles Davis — Kind of Blue ↺                         2:14 / 9:22
+ ♪ PMUSIC   LIBRARY  4 folders · 38 tracks                 ▂▅█▃ LIVE
+┏━━━━━━━━━━━━━━━━━━━━━━━━┓┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  COLLECTIONS  04      ┃┃  TRACKS  Jazz                /\_/\  ┃
+┃  Classic Rock         ┃┃   1. ▶ Kind of Blue          (^.^)  ┃
+┃  Electronic           ┃┃   2.   So What                >♪ <  ┃
+┃› Jazz                 ┃┃   3.   Freddie Freeloader           ┃
+┃  Lo-fi                ┃┃   4.   Blue in Green                ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━┛┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+  ▂▆█▃▇▅▁  ▶ Miles Davis — Kind of Blue ↺              2:14 / 9:22
   Kind of Blue
-  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━──────────────────────────────────
-  j/k:move  h/l:panel  spc:pause  +/-:vol  [/]:seek5s  ?:help  q:quit
+  ━━━━━━━━━━━━━━━━━━━━━●──────────────────────────────────────────
+  j/k:move  h/l:panel  enter:play  spc:pause  n/p:skip  ?:help  q:quit
 ```
 
 ## Features

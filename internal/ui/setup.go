@@ -12,9 +12,10 @@ import (
 type SetupDoneMsg struct{ Dir string }
 
 type SetupModel struct {
-	input textinput.Model
-	err   string
-	w, h  int
+	input  textinput.Model
+	err    string
+	w, h   int
+	frame  int
 	Result string // populated when the user confirms a valid directory
 }
 
@@ -37,7 +38,7 @@ func NewSetup() SetupModel {
 }
 
 func (s SetupModel) Init() tea.Cmd {
-	return textinput.Blink
+	return tea.Batch(textinput.Blink, tickCmd())
 }
 
 func (s SetupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -45,6 +46,10 @@ func (s SetupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		s.w, s.h = msg.Width, msg.Height
 		return s, nil
+
+	case tickMsg:
+		s.frame = (s.frame + 1) % 120
+		return s, tickCmd()
 
 	case tea.KeyMsg:
 		switch msg.Type {
@@ -73,23 +78,31 @@ func (s SetupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (s SetupModel) View() string {
+	boxW := 62
+	if s.w > 0 {
+		boxW = min(boxW, max(36, s.w-6))
+	}
+	s.input.Width = max(20, boxW-10)
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#88C0D0")).
-		Background(lipgloss.Color("#2E3440")).
+		BorderForeground(lipgloss.Color("#8AADF4")).
+		Background(lipgloss.Color("#24273A")).
 		Padding(1, 3).
-		Width(60)
+		Width(boxW)
 
-	title := styleTitle.Render("pmusic — first run setup")
-	prompt := styleNormal.Render("\n  Enter your music directory:\n\n  ") + s.input.View()
+	brand := styleLogo.Render("♪ PMUSIC") + "  " + styleVisualizer.Render(visualizer(s.frame, 9))
+	title := "\n" + styleTitle.Render("LET'S BUILD YOUR LIBRARY")
+	prompt := styleDim.Render("\nChoose the folder where your music lives.\n\n") +
+		styleHeaderMeta.Render("MUSIC DIRECTORY\n") + s.input.View()
 
 	errLine := ""
 	if s.err != "" {
-		errLine = "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#BF616A")).Render(s.err)
+		errLine = "\n\n" + styleError.Render("● "+strings.TrimSpace(s.err))
 	}
 
-	hint := "\n\n" + styleDim.Render("  enter: confirm   esc: quit")
-	content := title + prompt + errLine + hint
+	hint := "\n\n" + styleKey.Render("ENTER") + styleDim.Render(" confirm    ") +
+		styleKey.Render("ESC") + styleDim.Render(" quit")
+	content := brand + title + prompt + errLine + hint
 
 	dialog := box.Render(content)
 
@@ -97,5 +110,5 @@ func (s SetupModel) View() string {
 		return dialog
 	}
 	return lipgloss.Place(s.w, s.h, lipgloss.Center, lipgloss.Center, dialog,
-		lipgloss.WithWhitespaceBackground(lipgloss.Color("#2E3440")))
+		lipgloss.WithWhitespaceBackground(lipgloss.Color("#1E2030")))
 }

@@ -50,7 +50,7 @@ var mascotPlaying = [4][3]string{
 	{`/\_/\`, `(>.~)`, `>♪ < `},
 	{`/\_/\`, `(^-^)`, `>♫ < `},
 }
-var mascotPaused  = [3]string{`/\_/\`, `(-_-)`, `~♩~ `}
+var mascotPaused = [3]string{`/\_/\`, `(-_-)`, `~♩~ `}
 var mascotStopped = [3]string{`/\_/\`, `(z.z)`, ` zzz`}
 
 type storeEntry struct {
@@ -76,6 +76,7 @@ type Model struct {
 	loop       bool
 
 	mascotFrame int
+	uiFrame     int
 
 	nowMeta  meta.Meta
 	showHelp bool
@@ -88,8 +89,8 @@ type Model struct {
 	showDownload  bool
 	downloadInput textinput.Model
 
-	showSearch    bool
-	searchInput   textinput.Model
+	showSearch  bool
+	searchInput textinput.Model
 
 	showBlackjack bool
 	bjGame        *blackjack.Game
@@ -258,6 +259,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
+		m.uiFrame = (m.uiFrame + 1) % 120
 		// Advance mascot animation frame while playing.
 		if m.player.State() == player.Playing {
 			m.mascotFrame = (m.mascotFrame + 1) % 4
@@ -770,8 +772,8 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 	col, row := msg.X, msg.Y
 	leftW := m.width / 3
-	
-	header := styleHeader.Width(m.width).Render(" ♪ pmusic")
+
+	header := m.renderHeader(m.width)
 	topH := lipgloss.Height(header)
 
 	// mainH = m.height - bottomH(4) - topH - 2
@@ -829,6 +831,12 @@ func (m *Model) View() string {
 	if m.width == 0 {
 		return "loading..."
 	}
+	if m.width < 52 || m.height < 12 {
+		content := styleLogo.Render("♪ PMUSIC") + "  " + styleVisualizer.Render(visualizer(m.uiFrame, 5)) +
+			"\n\n" + styleTitle.Render("Terminal is a little too cozy") +
+			"\n" + styleHeaderMeta.Render("Resize to at least 52 × 12")
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+	}
 	if m.showDownload {
 		return m.renderDownload()
 	}
@@ -845,8 +853,8 @@ func (m *Model) View() string {
 		return blackjack.Render(m.bjGame, m.width, m.height)
 	}
 
-	header := styleHeader.Width(m.width).Render(" ♪ pmusic")
-	
+	header := m.renderHeader(m.width)
+
 	bottomH := 4
 	topH := lipgloss.Height(header)
 	mainH := m.height - bottomH - topH - 2
@@ -863,12 +871,54 @@ func (m *Model) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left, header, middle, bottom)
 }
 
+func (m *Model) renderHeader(w int) string {
+	logo := styleLogo.Render("♪ PMUSIC")
+	trackCount := 0
+	for _, folder := range m.folders {
+		trackCount += len(folder.Tracks)
+	}
+
+	meta := styleHeaderMeta.Render(fmt.Sprintf("  LIBRARY  %d folders · %d tracks", len(m.folders), trackCount))
+	if w < 72 {
+		meta = styleHeaderMeta.Render(fmt.Sprintf("  %d folders · %d tracks", len(m.folders), trackCount))
+	}
+
+	right := ""
+	if len(m.queue) > 0 {
+		right += styleBadge.Render(fmt.Sprintf("QUEUE %d", len(m.queue))) + " "
+	}
+	state := "READY"
+	stateStyle := styleHeaderMeta
+	if m.nowPlaying != nil {
+		switch m.player.State() {
+		case player.Playing:
+			state = visualizer(m.uiFrame, 4) + " LIVE"
+			stateStyle = stylePlaying
+		case player.Paused:
+			state = "Ⅱ PAUSED"
+			stateStyle = stylePaused
+		}
+	}
+	right += stateStyle.Bold(true).Render(state)
+
+	space := w - lipgloss.Width(logo) - lipgloss.Width(meta) - lipgloss.Width(right)
+	if space < 1 {
+		meta = ""
+		space = w - lipgloss.Width(logo) - lipgloss.Width(right)
+	}
+	if space < 1 {
+		right = ""
+		space = max(0, w-lipgloss.Width(logo))
+	}
+	return styleHeader.Width(w).Render(logo + meta + strings.Repeat(" ", space) + right)
+}
+
 func (m *Model) renderFolders(w, h int) string {
 	innerW := w - 4
 	innerH := h - 2
 
 	var sb strings.Builder
-	title := styleTitle.Render("  Folders")
+	title := styleTitle.Render("  COLLECTIONS") + styleHeaderMeta.Render(fmt.Sprintf("  %02d", len(m.folders)))
 	sb.WriteString(title + "\n")
 
 	if len(m.folders) == 0 {
@@ -880,7 +930,7 @@ func (m *Model) renderFolders(w, h int) string {
 			name := truncate(f.Name, innerW-4)
 			prefix := "  "
 			if i == m.folderIdx {
-				line := prefix + name
+				line := "› " + name
 				if m.focused == panelFolders {
 					sb.WriteString(styleSelected.Width(innerW).Render(line))
 				} else {
@@ -933,12 +983,12 @@ func (m *Model) renderTracks(w, h int) string {
 	if len(m.folders) > 0 {
 		folderName = m.folders[m.folderIdx].Name
 	}
-	
+
 	var title string
 	if m.showSearch || m.searchInput.Value() != "" {
-		title = styleTitle.Render("  " + m.searchInput.View())
+		title = styleTitle.Render("  SEARCH  ") + m.searchInput.View()
 	} else {
-		title = styleTitle.Render("  " + truncate(folderName, trackW-6))
+		title = styleTitle.Render("  TRACKS") + styleHeaderMeta.Render("  "+truncate(folderName, trackW-12))
 	}
 
 	sb.WriteString(padRight(title, innerW-mascotW) + catStr[0] + "\n")
@@ -1017,8 +1067,14 @@ func (m *Model) renderBottom(w int) string {
 		if m.nowMeta.Artist != "" {
 			displayTitle = m.nowMeta.Artist + " — " + displayTitle
 		}
-		label := stateStyle.Render(icon+" "+displayTitle) + loopMark + volStr
 		ratio, elapsed, total := m.player.Progress()
+		available := max(12, w-len(fmtDur(elapsed))-len(fmtDur(total))-28)
+		displayTitle = marquee(displayTitle, available, m.uiFrame/2)
+		motion := ""
+		if m.player.State() == player.Playing {
+			motion = styleVisualizer.Render(visualizer(m.uiFrame, 7)) + "  "
+		}
+		label := motion + stateStyle.Render(icon+" "+displayTitle) + loopMark + volStr
 		timeStr := fmt.Sprintf(" %s / %s", fmtDur(elapsed), fmtDur(total))
 		sb.WriteString(label + styleDim.Render(timeStr) + "\n")
 		if m.nowMeta.Album != "" {
@@ -1033,10 +1089,12 @@ func (m *Model) renderBottom(w int) string {
 	}
 
 	// Key hints
-	hints := []string{
-		"j/k:move", "h/l:panel", "enter:play", "spc:pause",
-		"n/p:next/prev", "r:loop", "+/-:vol", "[/]:seek5s",
-		"a:queue+", "u:queue", "Y:yt-dlp", "g:store", "b:blackjack", "?:help", "q:quit",
+	hints := []string{"j/k:move", "h/l:panel", "enter:play", "spc:pause", "n/p:skip", "?:help", "q:quit"}
+	if w >= 110 {
+		hints = []string{
+			"j/k:move", "h/l:panel", "enter:play", "spc:pause", "n/p:skip",
+			"r:loop", "+/-:vol", "/:search", "a:queue+", "u:queue", "?:help", "q:quit",
+		}
 	}
 	var hintParts []string
 	for _, h := range hints {
@@ -1045,7 +1103,7 @@ func (m *Model) renderBottom(w int) string {
 		if parts[0] == "r" && m.loop {
 			hintParts = append(hintParts, styleKey.Render(parts[0])+stylePlaying.Render(":"+label+"[on]"))
 		} else {
-			hintParts = append(hintParts, styleKey.Render(parts[0])+styleDim.Render(":"+label))
+			hintParts = append(hintParts, styleKey.Render(parts[0])+styleHeaderMeta.Render(":"+label))
 		}
 	}
 	sb.WriteString(styleDim.Render("  " + strings.Join(hintParts, "  ")))
@@ -1061,9 +1119,36 @@ func renderProgress(w int, ratio float64) string {
 	if filled > w {
 		filled = w
 	}
-	bar := styleProgressFill.Render(strings.Repeat("█", filled)) +
-		styleProgressEmpty.Render(strings.Repeat("░", w-filled))
+	bar := ""
+	if filled > 0 && filled < w {
+		bar = styleProgressFill.Render(strings.Repeat("━", filled-1)+"●") +
+			styleProgressEmpty.Render(strings.Repeat("─", w-filled))
+	} else {
+		bar = styleProgressFill.Render(strings.Repeat("━", filled)) +
+			styleProgressEmpty.Render(strings.Repeat("─", w-filled))
+	}
 	return "  " + bar
+}
+
+func visualizer(frame, width int) string {
+	levels := []rune("▁▂▃▄▅▆▇█")
+	var b strings.Builder
+	for i := 0; i < width; i++ {
+		level := (frame + i*3 + (frame/3+i*i)%5) % len(levels)
+		b.WriteRune(levels[level])
+	}
+	return b.String()
+}
+
+func marquee(s string, width, offset int) string {
+	r := []rune(s)
+	if width <= 0 || len(r) <= width {
+		return s
+	}
+	gap := []rune("   •   ")
+	loop := append(append(append([]rune{}, r...), gap...), r...)
+	start := offset % (len(r) + len(gap))
+	return string(loop[start : start+width])
 }
 
 func playIcon(s player.State) string {
@@ -1456,6 +1541,7 @@ func (m *Model) renderHelp() string {
 		{"Queue", "a          queue selected track/folder\nu          open / close queue\nK / J      move up / down in queue\nd          remove from queue\nc          clear queue"},
 		{"Seek", "[  /  ]    ±5 seconds\n{  /  }    ±30 seconds"},
 		{"Volume", "+  /  =    volume up (10%)\n-          volume down (10%)"},
+		{"Download", "Y          YouTube download (yt-dlp)"},
 		{"System", "?          toggle this help\nCtrl+R     reload Lua config\nq          quit"},
 	}
 
