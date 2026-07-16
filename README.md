@@ -90,11 +90,39 @@ On first startup a setup screen appears asking for your music folder path. This 
 | `{` / `}` | Seek ±30 seconds |
 | `+` / `=` | Volume up (+10%) |
 | `-` | Volume down (−10%) |
+| `:` | Open Vim-style command mode |
 | `?` | Show / hide help overlay |
 | `Y` | Open music search and download screen |
 | `g` | Open plugin / theme store |
 | `Ctrl+R` | Reload Lua config (hot-reload) |
 | `q` / `Ctrl+C` | Quit |
+
+## Command Mode
+
+Press `:` to open the Vim-style command line. Command execution, completion,
+aliases, suggestions, and help all use the same central command registry.
+
+Examples:
+
+- `:play`
+- `:pause`
+- `:volume 60`
+- `:seek +30`
+- `:loop toggle`
+- `:queue clear`
+- `:search Metallica`
+- `:online Metallica`
+- `:download Duman Seni Kendime Sakladım`
+- `:reload lua`
+- `:help seek`
+- `:quit`
+
+Use `Tab` and `Shift+Tab` for completion, `↑`/`↓` for suggestions or command
+history, and `:help` for the complete searchable command reference. `Ctrl+U`
+clears the line, `Ctrl+W` deletes the previous word, and `Esc` or `Ctrl+C`
+returns to normal mode. Command history is kept in
+`$XDG_STATE_HOME/pmusic/command-history` (or
+`~/.local/state/pmusic/command-history`).
 
 ## Mouse
 

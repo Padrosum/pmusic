@@ -36,6 +36,11 @@ type tickMsg time.Time
 
 // luaReloadedMsg is sent back to the Update loop after a Lua hot-reload attempt.
 type luaReloadedMsg struct{ err error }
+type libraryReloadedMsg struct {
+	root    *pfs.Folder
+	folders []*pfs.Folder
+	err     error
+}
 
 // mascot animation constants — each frame line is rendered at fixed width via lipgloss.
 const mascotW = 8
@@ -114,6 +119,11 @@ type Model struct {
 	// Notification overlay (shown in status bar, expires after a short time)
 	notification string
 	notifyUntil  time.Time
+
+	commandLine      commandLineModel
+	commandHelp      commandHelpModel
+	mutedVolume      int
+	trackSearchCache map[string]trackSearchInfo
 }
 
 func New(rootDir string) (*Model, error) {
@@ -129,13 +139,24 @@ func New(rootDir string) (*Model, error) {
 	si.CharLimit = 100
 
 	m := &Model{
-		root:        root,
-		folders:     folders,
-		player:      p,
-		rootDir:     rootDir,
-		searchInput: si,
-		musicSearch: newMusicSearchModel(),
-		downloader:  pmdownload.New(),
+		root:             root,
+		folders:          folders,
+		player:           p,
+		rootDir:          rootDir,
+		searchInput:      si,
+		musicSearch:      newMusicSearchModel(),
+		downloader:       pmdownload.New(),
+		commandHelp:      newCommandHelpModel(),
+		trackSearchCache: make(map[string]trackSearchInfo),
+	}
+	cl, err := newCommandLine()
+	if err != nil {
+		return nil, fmt.Errorf("command system: %w", err)
+	}
+	m.commandLine = cl
+	if cl.initWarning != nil {
+		m.notification = "history: " + cl.initWarning.Error()
+		m.notifyUntil = time.Now().Add(5 * time.Second)
 	}
 	youtube := pmsearch.NewYouTube()
 	m.searchProvider = youtube
@@ -186,6 +207,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if cmd, handled := m.handleMusicSearchMessage(msg); handled {
 		return m, cmd
 	}
+	// Command input owns every key while active, before overlays, Lua keymaps,
+	// and global shortcuts. This prevents typed q/n/p/space/j/k from leaking.
+	if m.commandLine.active {
+		return m.handleCommandLine(msg)
+	}
+	if m.commandHelp.show {
+		return m.handleCommandHelp(msg)
+	}
 
 	if m.showMusicSearch {
 		return m.handleMusicSearch(msg)
@@ -228,6 +257,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.notifyUntil = time.Now().Add(5 * time.Second)
 		applyTheme(m.luaEngine.Theme())
+		return m, nil
+
+	case libraryReloadedMsg:
+		if msg.err != nil {
+			m.notify("library reload: " + msg.err.Error())
+		} else {
+			m.root, m.folders = msg.root, msg.folders
+			m.trackSearchCache = make(map[string]trackSearchInfo)
+			m.folderIdx = min(m.folderIdx, max(0, len(m.folders)-1))
+			m.trackIdx = 0
+			m.notify(fmt.Sprintf("Library reloaded: %d folders", len(m.folders)))
+		}
 		return m, nil
 
 	case tickMsg:
@@ -320,6 +361,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Blackjack overlay intercepts all keys.
 		if m.showBlackjack {
 			return m.updateBlackjack(msg)
+		}
+
+		// Text-input overlays are handled above. Other overlays intentionally
+		// intercept ':' rather than allowing two simultaneous modal owners.
+		if msg.String() == ":" {
+			return m, m.openCommandLine()
 		}
 
 		// Built-in Download panel takes priority over any Lua keymap on the same key.
@@ -532,7 +579,7 @@ func (m *Model) currentTracks() []pfs.Track {
 	var filtered []pfs.Track
 	for _, f := range m.folders {
 		for _, t := range f.Tracks {
-			if strings.Contains(strings.ToLower(t.Name), query) {
+			if strings.Contains(m.trackSearchInfo(t).search, query) {
 				filtered = append(filtered, t)
 			}
 		}
@@ -726,6 +773,7 @@ func (m *Model) rescan() {
 	}
 	m.root = root
 	m.folders = pfs.FlatFolders(root)
+	m.trackSearchCache = make(map[string]trackSearchInfo)
 	if m.folderIdx >= len(m.folders) {
 		m.folderIdx = max(0, len(m.folders)-1)
 	}
@@ -807,7 +855,13 @@ func (m *Model) View() string {
 	if m.width == 0 {
 		return "loading..."
 	}
+	if m.commandHelp.show {
+		return m.renderCommandHelp()
+	}
 	if m.width < 52 || m.height < 12 {
+		if m.commandLine.active {
+			return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Bottom, m.renderCommandLine(m.width))
+		}
 		content := styleLogo.Render("♪ PMUSIC") + "  " + styleVisualizer.Render(visualizer(m.uiFrame, 5)) +
 			"\n\n" + styleTitle.Render("Terminal is a little too cozy") +
 			"\n" + styleHeaderMeta.Render("Resize to at least 52 × 12")
@@ -831,7 +885,7 @@ func (m *Model) View() string {
 
 	header := m.renderHeader(m.width)
 
-	bottomH := 4
+	bottomH := m.commandLineHeight()
 	topH := lipgloss.Height(header)
 	mainH := m.height - bottomH - topH - 2
 
@@ -843,6 +897,9 @@ func (m *Model) View() string {
 
 	middle := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 	bottom := m.renderBottom(m.width)
+	if m.commandLine.active {
+		bottom = m.renderCommandLine(m.width)
+	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, middle, bottom)
 }
@@ -1065,11 +1122,11 @@ func (m *Model) renderBottom(w int) string {
 	}
 
 	// Key hints
-	hints := []string{"j/k:move", "h/l:panel", "enter:play", "spc:pause", "n/p:skip", "?:help", "q:quit"}
+	hints := []string{"j/k:move", "h/l:panel", "enter:play", "spc:pause", ":command", "?:help", "q:quit"}
 	if w >= 110 {
 		hints = []string{
 			"j/k:move", "h/l:panel", "enter:play", "spc:pause", "n/p:skip",
-			"r:loop", "+/-:vol", "/:search", "a:queue+", "u:queue", "?:help", "q:quit",
+			"r:loop", "+/-:vol", "/:search", "a:queue+", "u:queue", ":command", "?:help", "q:quit",
 		}
 	}
 	var hintParts []string
@@ -1493,7 +1550,7 @@ func (m *Model) renderHelp() string {
 		{"Seek", "[  /  ]    ±5 seconds\n{  /  }    ±30 seconds"},
 		{"Volume", "+  /  =    volume up (10%)\n-          volume down (10%)"},
 		{"Music Search", "Y          search and download music\n/          new search inside the overlay"},
-		{"System", "?          toggle this help\nCtrl+R     reload Lua config\nq          quit"},
+		{"System", ":          open command mode\n?          toggle this help\nCtrl+R     reload Lua config\nq          quit"},
 	}
 
 	var lines []string

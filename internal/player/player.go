@@ -211,6 +211,20 @@ func (p *Player) TogglePause() {
 	}
 }
 
+// Pause is idempotent and reports whether a loaded stream exists.
+func (p *Player) Pause() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.ctrl == nil {
+		return false
+	}
+	speaker.Lock()
+	p.ctrl.Paused = true
+	speaker.Unlock()
+	p.state = Paused
+	return true
+}
+
 // Seek moves playback position by delta. Clamps to [0, total). No-op if stopped.
 func (p *Player) Seek(delta time.Duration) {
 	p.mu.Lock()
@@ -234,6 +248,29 @@ func (p *Player) Seek(delta time.Duration) {
 	}
 	_ = stream.Seek(srcRate.N(target))
 	speaker.Unlock()
+}
+
+// SeekTo jumps to an absolute playback position and clamps to [0,total).
+// It returns false when no track is loaded.
+func (p *Player) SeekTo(position time.Duration) bool {
+	p.mu.Lock()
+	stream := p.streamer
+	srcRate := p.srcRate
+	tot := p.total
+	p.mu.Unlock()
+	if stream == nil || tot <= 0 {
+		return false
+	}
+	if position < 0 {
+		position = 0
+	}
+	if position >= tot {
+		position = tot - time.Millisecond
+	}
+	speaker.Lock()
+	err := stream.Seek(srcRate.N(position))
+	speaker.Unlock()
+	return err == nil
 }
 
 // SetVolume sets playback volume in [0.0, 1.0]. Takes effect immediately.
