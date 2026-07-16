@@ -52,6 +52,16 @@ ppd install pmusic
 go install github.com/Padrosum/pmusic@latest
 ```
 
+Make sure `$(go env GOPATH)/bin` is in your `PATH`.
+
+### From a release
+
+```sh
+curl -fL -o pmusic https://github.com/Padrosum/pmusic/releases/latest/download/pmusic-linux-amd64
+chmod +x pmusic
+sudo install pmusic /usr/local/bin/pmusic
+```
+
 ### Build from source
 
 ```sh
@@ -64,7 +74,16 @@ For a smaller release binary with debug tables and local source paths removed:
 
 ```sh
 make release
-# output: dist/pmusic
+# outputs: pmusic (ppd) and dist/pmusic
+```
+
+If an older ppd installation fails with `syntax error` followed by
+`<!DOCTYPE html>`, it installed GitHub's old 404 page rather than an executable.
+Update after the repository-root binary is published, or repair it locally:
+
+```sh
+make release
+sudo install dist/pmusic /usr/local/bin/pmusic
 ```
 
 ## Usage

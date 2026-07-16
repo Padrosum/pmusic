@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  linux-amd64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build release binary
+        env:
+          VERSION: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          mkdir -p dist
+          go build -mod=readonly -trimpath \
+            -ldflags="-s -w -X main.version=${VERSION#v} -X main.commit=${COMMIT}" \
+            -o dist/pmusic-linux-amd64 .
+      - name: Reject non-binary output
+        run: |
+          test -s dist/pmusic-linux-amd64
+          file dist/pmusic-linux-amd64 | grep -q 'ELF 64-bit'
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/pmusic-linux-amd64
+          generate_release_notes: true

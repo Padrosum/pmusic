@@ -6,10 +6,12 @@ COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || printf unknown)
 build:
 	go build -trimpath -o pmusic .
 
-# Strip debug tables and local source paths for a smaller distributable binary.
+# Keep the release binary at the repository root for ppd compatibility and
+# mirror it under dist/ for GitHub release uploads.
 release:
 	mkdir -p dist
-	go build -mod=readonly -trimpath -ldflags="-s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)" -o dist/pmusic .
+	go build -mod=readonly -trimpath -ldflags="-s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)" -o pmusic .
+	cp pmusic dist/pmusic
 
 fmt-check:
 	test -z "$$(gofmt -l .)"

@@ -1,5 +1,17 @@
 # pmusic Haberler ve Değişiklik Notları
 
+## 2026-07-16 — ppd kurulum regresyonu düzeltmesi
+
+- Kaynak takibinden çıkarılan repository-root `pmusic` binary'sine bağlı eski
+  ppd kurulum yolunun GitHub 404 HTML sayfasını executable olarak kaydettiği
+  tespit edildi.
+- ppd'nin mevcut doğrudan-binary sözleşmesiyle uyumluluk için release binary'si
+  repository köküne geri getirildi ve Git takibine yeniden açıldı.
+- `v*` tag'leri için doğrulanmış `pmusic-linux-amd64` varlığı üreten GitHub
+  release workflow'u eklendi.
+- README'ye güvenli indirme (`curl -fL`) ve bozuk ppd kurulumunu yerel release
+  binary'siyle onarma adımları eklendi.
+
 ## 2026-07-16 — Güvenilirlik ve güvenlik sağlamlaştırması
 
 Bu güncelleme mevcut TUI, klavye kısayolları ve Vim-benzeri komut sistemini
