@@ -9,6 +9,8 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+
+	"github.com/Padrosum/pmusic/internal/urlutil"
 )
 
 const (
@@ -43,11 +45,11 @@ func buildSearchArgs(query string, limit int) []string {
 }
 
 func (p *YouTube) Resolve(ctx context.Context, rawURL string) (Result, error) {
-	_, rawURL, err := ClassifyInput(rawURL)
+	rawURL, err := urlutil.ValidateHTTP(rawURL)
 	if err != nil {
 		return Result{}, err
 	}
-	args := []string{"--dump-json", "--no-warnings", "--skip-download", "--playlist-end", "1", rawURL}
+	args := []string{"--dump-json", "--no-warnings", "--skip-download", "--playlist-end", "1", "--", rawURL}
 	results, err := p.runJSONLines(ctx, args, 1)
 	if err != nil {
 		return Result{}, err
@@ -136,6 +138,12 @@ func parseJSONLines(r io.Reader, fallbackProvider string, limit int) ([]Result, 
 		if result.Title == "" && result.URL == "" {
 			malformed++
 			continue
+		}
+		if result.URL != "" {
+			if _, err := urlutil.ValidateHTTP(result.URL); err != nil {
+				malformed++
+				continue
+			}
 		}
 		results = append(results, result)
 	}

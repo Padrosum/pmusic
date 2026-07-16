@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestBuildSearchArgsKeepsQueryInOneArgument(t *testing.T) {
+func TestSearchArgumentsDoNotUseShell(t *testing.T) {
 	query := `metallica; $(touch should-not-run)`
 	args := buildSearchArgs(query, 10)
 	if got := args[len(args)-1]; got != "ytsearch10:"+query {

@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/Padrosum/pmusic/internal/urlutil"
 )
 
 var (
@@ -28,7 +30,8 @@ type Downloader struct {
 func New() *Downloader { return &Downloader{Binary: "yt-dlp"} }
 
 func BuildArgs(musicDir, rawURL string) ([]string, error) {
-	if strings.TrimSpace(rawURL) == "" {
+	validatedURL, err := urlutil.ValidateHTTP(rawURL)
+	if err != nil {
 		return nil, ErrInvalidURL
 	}
 	return []string{
@@ -36,7 +39,7 @@ func BuildArgs(musicDir, rawURL string) ([]string, error) {
 		"-x", "--audio-format", "mp3", "--audio-quality", "0",
 		"--embed-metadata", "--embed-thumbnail",
 		"-o", filepath.Join(musicDir, "%(title)s.%(ext)s"),
-		rawURL,
+		"--", validatedURL,
 	}, nil
 }
 
@@ -52,14 +55,15 @@ func (d *Downloader) Download(ctx context.Context, musicDir, rawURL string) erro
 	if binary == "" {
 		binary = "yt-dlp"
 	}
-	if _, err := exec.LookPath(binary); err != nil {
+	resolvedBinary, err := exec.LookPath(binary)
+	if err != nil {
 		return ErrYTDLP
 	}
 	args, err := BuildArgs(musicDir, rawURL)
 	if err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, binary, args...)
+	cmd := exec.CommandContext(ctx, resolvedBinary, args...)
 	cmd.Stdout = io.Discard
 	var stderr limitedBuffer
 	cmd.Stderr = &stderr
@@ -72,9 +76,9 @@ func (d *Downloader) Download(ctx context.Context, musicDir, rawURL string) erro
 			detail = line
 		}
 		if detail != "" {
-			return fmt.Errorf("yt-dlp failed: %s", detail)
+			return fmt.Errorf("yt-dlp (%s) failed: %s", resolvedBinary, detail)
 		}
-		return fmt.Errorf("yt-dlp failed: %w", err)
+		return fmt.Errorf("yt-dlp (%s) failed: %w", resolvedBinary, err)
 	}
 	return nil
 }

@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
+	pmdownload "github.com/Padrosum/pmusic/internal/download"
+	pmsearch "github.com/Padrosum/pmusic/internal/search"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	pmdownload "github.com/padros/pmusic/internal/download"
-	pmsearch "github.com/padros/pmusic/internal/search"
 )
 
 type musicSearchState int
@@ -237,7 +237,7 @@ func (m *Model) handleMusicSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.watcher != nil && m.watcher.Changed() {
 			m.rescan()
 		}
-		return m, tickCmd()
+		return m, m.tickCmd()
 	case tea.KeyMsg:
 		if msg.Type == tea.KeyEsc || key.Matches(msg, keys.Quit) {
 			m.closeMusicSearch()

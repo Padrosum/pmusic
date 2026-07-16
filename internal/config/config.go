@@ -1,9 +1,10 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"github.com/Padrosum/pmusic/internal/persistence"
 )
 
 type Config struct {
@@ -23,17 +24,11 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(p)
+	cfg, found, err := persistence.LoadJSON[Config](p, nil)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return &Config{}, nil
-		}
 		return nil, err
 	}
-	defer f.Close()
-
-	var cfg Config
-	if err := json.NewDecoder(f).Decode(&cfg); err != nil {
+	if !found {
 		return &Config{}, nil
 	}
 	return &cfg, nil
@@ -44,25 +39,5 @@ func Save(cfg *Config) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return err
-	}
-	// Write to a temp file first so a failed write never corrupts the existing config.
-	tmp := p + ".tmp"
-	f, err := os.Create(tmp)
-	if err != nil {
-		return err
-	}
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(cfg); err != nil {
-		f.Close()
-		os.Remove(tmp)
-		return err
-	}
-	if err := f.Close(); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return os.Rename(tmp, p)
+	return persistence.SaveJSON(p, cfg)
 }

@@ -1,10 +1,14 @@
 package player
 
 import (
+	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/faiface/beep"
@@ -14,12 +18,9 @@ import (
 	"github.com/faiface/beep/wav"
 )
 
-// Fixed output sample rate — speaker is initialized once at startup.
 const outputRate beep.SampleRate = 44100
 
-func init() {
-	speaker.Init(outputRate, outputRate.N(time.Second/10))
-}
+var ErrClosed = errors.New("player is closed")
 
 type State int
 
@@ -29,8 +30,67 @@ const (
 	Paused
 )
 
-// volumeStreamer wraps a Streamer and scales sample amplitudes by volume (0.0–1.0).
-// Volume must only be modified while holding speaker.Lock.
+// AudioBackend is the smallest boundary around beep's process-global speaker.
+// Player never holds its state mutex while calling these methods.
+type AudioBackend interface {
+	Init(sampleRate beep.SampleRate, bufferSize int) error
+	Lock()
+	Unlock()
+	Clear()
+	Play(beep.Streamer)
+	Close() error
+}
+
+// Decoder owns opening the source and must return a stream that closes it.
+type Decoder interface {
+	Decode(path string) (beep.StreamSeekCloser, beep.Format, error)
+}
+
+type speakerBackend struct{}
+
+func (speakerBackend) Init(rate beep.SampleRate, size int) error { return speaker.Init(rate, size) }
+func (speakerBackend) Lock()                                     { speaker.Lock() }
+func (speakerBackend) Unlock()                                   { speaker.Unlock() }
+func (speakerBackend) Clear()                                    { speaker.Clear() }
+func (speakerBackend) Play(s beep.Streamer)                      { speaker.Play(s) }
+func (speakerBackend) Close() error                              { speaker.Close(); return nil }
+
+type fileDecoder struct {
+	open func(string) (io.ReadCloser, error)
+}
+
+func (d fileDecoder) Decode(path string) (beep.StreamSeekCloser, beep.Format, error) {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext != ".mp3" && ext != ".flac" && ext != ".wav" {
+		return nil, beep.Format{}, fmt.Errorf("unsupported audio format %q", ext)
+	}
+	opener := d.open
+	if opener == nil {
+		opener = func(path string) (io.ReadCloser, error) { return os.Open(path) }
+	}
+	f, err := opener(path)
+	if err != nil {
+		return nil, beep.Format{}, err
+	}
+	var stream beep.StreamSeekCloser
+	var format beep.Format
+	switch ext {
+	case ".mp3":
+		stream, format, err = mp3.Decode(f)
+	case ".flac":
+		stream, format, err = flac.Decode(f)
+	case ".wav":
+		stream, format, err = wav.Decode(f)
+	}
+	if err != nil {
+		if closeErr := f.Close(); closeErr != nil {
+			return nil, beep.Format{}, errors.Join(err, closeErr)
+		}
+		return nil, beep.Format{}, err
+	}
+	return stream, format, nil
+}
+
 type volumeStreamer struct {
 	s      beep.Streamer
 	volume float64
@@ -42,25 +102,95 @@ func (v *volumeStreamer) Stream(samples [][2]float64) (n int, ok bool) {
 		samples[i][0] *= v.volume
 		samples[i][1] *= v.volume
 	}
-	return
+	return n, ok
 }
 
 func (v *volumeStreamer) Err() error { return v.s.Err() }
 
-type Player struct {
-	mu       sync.Mutex
-	state    State
-	ctrl     *beep.Ctrl
-	streamer beep.StreamSeekCloser
-	volCtrl  *volumeStreamer
-	volume   float64 // 0.0–1.0; default 1.0
-	srcRate  beep.SampleRate
-	total    time.Duration
-	onDone   func()
+// ownedStream serializes stream access and makes source ownership exactly-once.
+type ownedStream struct {
+	mu        sync.Mutex
+	stream    beep.StreamSeekCloser
+	closeOnce sync.Once
+	closeErr  error
 }
 
-func New() *Player {
-	return &Player{volume: 1.0}
+func (s *ownedStream) Stream(samples [][2]float64) (int, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stream.Stream(samples)
+}
+
+func (s *ownedStream) Err() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stream.Err()
+}
+
+func (s *ownedStream) Len() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stream.Len()
+}
+
+func (s *ownedStream) Position() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stream.Position()
+}
+
+func (s *ownedStream) Seek(position int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stream.Seek(position)
+}
+
+func (s *ownedStream) Close() error {
+	s.closeOnce.Do(func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.closeErr = s.stream.Close()
+	})
+	return s.closeErr
+}
+
+type Player struct {
+	opMu sync.Mutex
+	mu   sync.Mutex
+
+	backend  AudioBackend
+	decoder  Decoder
+	closed   bool
+	closeErr error
+
+	state        State
+	ctrl         *beep.Ctrl
+	streamer     *ownedStream
+	volCtrl      *volumeStreamer
+	volume       float64
+	srcRate      beep.SampleRate
+	total        time.Duration
+	onDone       func()
+	generation   uint64
+	completed    atomic.Uint64
+	lifecycleErr error
+}
+
+func New() (*Player, error) {
+	return NewWithBackend(speakerBackend{}, fileDecoder{})
+}
+
+func NewWithBackend(backend AudioBackend, decoder Decoder) (*Player, error) {
+	if backend == nil {
+		return nil, errors.New("audio backend is nil")
+	}
+	if decoder == nil {
+		return nil, errors.New("audio decoder is nil")
+	}
+	if err := backend.Init(outputRate, outputRate.N(time.Second/10)); err != nil {
+		return nil, fmt.Errorf("initialize audio backend: %w", err)
+	}
+	return &Player{backend: backend, decoder: decoder, volume: 1}, nil
 }
 
 func (p *Player) SetOnDone(fn func()) {
@@ -70,230 +200,258 @@ func (p *Player) SetOnDone(fn func()) {
 }
 
 func (p *Player) Play(path string) error {
-	// Pause and clear before swapping — prevents concurrent reads on closed streamer.
+	p.opMu.Lock()
+	defer p.opMu.Unlock()
+
 	p.mu.Lock()
-	oldCtrl := p.ctrl
-	oldStream := p.streamer
-	p.ctrl = nil
-	p.streamer = nil
-	p.volCtrl = nil
+	if p.closed {
+		p.mu.Unlock()
+		return ErrClosed
+	}
+	p.generation++
+	generation := p.generation
+	oldCtrl, oldStream := p.ctrl, p.streamer
+	p.ctrl, p.streamer, p.volCtrl = nil, nil, nil
+	p.state, p.total = Stopped, 0
 	p.mu.Unlock()
 
-	if oldCtrl != nil {
-		speaker.Lock()
-		oldCtrl.Paused = true
-		speaker.Unlock()
-	}
-	speaker.Clear()
-	if oldStream != nil {
-		oldStream.Close()
+	if err := p.stopAudio(oldCtrl, oldStream); err != nil {
+		return fmt.Errorf("close previous stream: %w", err)
 	}
 
-	f, err := os.Open(path)
+	decoded, format, err := p.decoder.Decode(path)
 	if err != nil {
-		// MarkPending may have set Playing; reset so auto-advance can move on.
-		p.markStopped()
 		return err
 	}
-
-	ext := strings.ToLower(filepath.Ext(path))
-	var stream beep.StreamSeekCloser
-	var format beep.Format
-
-	switch ext {
-	case ".mp3":
-		stream, format, err = mp3.Decode(f)
-	case ".flac":
-		stream, format, err = flac.Decode(f)
-	case ".wav":
-		stream, format, err = wav.Decode(f)
-	default:
-		f.Close()
-		p.markStopped()
-		return nil
-	}
-	if err != nil {
-		f.Close()
-		p.markStopped()
-		return err
-	}
-
-	var mid beep.Streamer
+	stream := &ownedStream{stream: decoded}
+	var middle beep.Streamer = stream
 	if format.SampleRate != outputRate {
-		mid = beep.Resample(4, format.SampleRate, outputRate, stream)
-	} else {
-		mid = stream
+		middle = beep.Resample(4, format.SampleRate, outputRate, stream)
 	}
-
-	volNode := &volumeStreamer{s: mid}
-	ctrl := &beep.Ctrl{Streamer: volNode, Paused: false}
+	volNode := &volumeStreamer{s: middle}
+	ctrl := &beep.Ctrl{Streamer: volNode}
 
 	p.mu.Lock()
+	if p.closed || p.generation != generation {
+		p.mu.Unlock()
+		return stream.Close()
+	}
+	volNode.volume = p.volume
 	p.ctrl = ctrl
 	p.streamer = stream
 	p.volCtrl = volNode
-	volNode.volume = p.volume // preserve volume across track changes
 	p.srcRate = format.SampleRate
 	p.total = format.SampleRate.D(stream.Len())
 	p.state = Playing
-	onDone := p.onDone
 	p.mu.Unlock()
 
-	speaker.Play(beep.Seq(ctrl, beep.Callback(func() {
-		p.mu.Lock()
-		// Only mark stopped if this is still the active ctrl (not already replaced).
-		if p.ctrl == ctrl {
-			p.state = Stopped
-			p.streamer = nil // prevent Progress() from showing stale 100% position
-			p.total = 0
-		}
-		p.mu.Unlock()
-		if onDone != nil {
-			onDone()
+	p.backend.Play(beep.Seq(ctrl, beep.Callback(func() {
+		// beep invokes callbacks while holding its speaker lock. Publishing the
+		// generation atomically keeps that callback independent of Player.mu.
+		for {
+			previous := p.completed.Load()
+			if generation <= previous || p.completed.CompareAndSwap(previous, generation) {
+				return
+			}
 		}
 	})))
-
 	return nil
 }
 
-func (p *Player) Stop() {
-	p.mu.Lock()
-	ctrl := p.ctrl
-	stream := p.streamer
-	p.ctrl = nil
-	p.streamer = nil
-	p.volCtrl = nil
-	p.state = Stopped
-	p.total = 0
-	p.mu.Unlock()
-
+func (p *Player) stopAudio(ctrl *beep.Ctrl, stream *ownedStream) error {
 	if ctrl != nil {
-		speaker.Lock()
+		p.backend.Lock()
 		ctrl.Paused = true
-		speaker.Unlock()
+		p.backend.Unlock()
 	}
-	speaker.Clear()
+	p.backend.Clear()
 	if stream != nil {
-		stream.Close()
+		return stream.Close()
+	}
+	return nil
+}
+
+func (p *Player) consumeCompletion() {
+	generation := p.completed.Swap(0)
+	if generation == 0 {
+		return
+	}
+	p.opMu.Lock()
+	defer p.opMu.Unlock()
+	p.mu.Lock()
+	if generation != p.generation || p.ctrl == nil {
+		p.mu.Unlock()
+		return
+	}
+	stream := p.streamer
+	onDone := p.onDone
+	p.ctrl, p.streamer, p.volCtrl = nil, nil, nil
+	p.state, p.total = Stopped, 0
+	p.mu.Unlock()
+	if stream != nil {
+		p.recordLifecycleError(stream.Close())
+	}
+	if onDone != nil {
+		onDone()
 	}
 }
 
-// MarkPending sets state to Playing immediately so tick-based auto-advance
-// doesn't fire during the window between cmd dispatch and goroutine execution.
+func (p *Player) Stop() error {
+	p.opMu.Lock()
+	defer p.opMu.Unlock()
+	err := p.stopLocked()
+	p.recordLifecycleError(err)
+	return err
+}
+
+func (p *Player) stopLocked() error {
+	p.mu.Lock()
+	ctrl, stream := p.ctrl, p.streamer
+	p.generation++
+	p.ctrl, p.streamer, p.volCtrl = nil, nil, nil
+	p.state, p.total = Stopped, 0
+	p.mu.Unlock()
+	return p.stopAudio(ctrl, stream)
+}
+
+func (p *Player) Close() error {
+	p.opMu.Lock()
+	defer p.opMu.Unlock()
+	p.mu.Lock()
+	if p.closed {
+		err := p.closeErr
+		p.mu.Unlock()
+		return err
+	}
+	p.closed = true
+	p.mu.Unlock()
+	stopErr := p.stopLocked()
+	backendErr := p.backend.Close()
+	p.mu.Lock()
+	p.closeErr = errors.Join(p.lifecycleErr, stopErr, backendErr)
+	err := p.closeErr
+	p.mu.Unlock()
+	return err
+}
+
+func (p *Player) recordLifecycleError(err error) {
+	if err == nil {
+		return
+	}
+	p.mu.Lock()
+	p.lifecycleErr = errors.Join(p.lifecycleErr, err)
+	p.mu.Unlock()
+}
+
 func (p *Player) MarkPending() {
 	p.mu.Lock()
-	p.state = Playing
-	p.mu.Unlock()
-}
-
-// markStopped resets the state to Stopped. Used by Play when a track fails to
-// open or decode, so the tick-based auto-advance moves past the dead track
-// instead of freezing on a phantom "Playing" state set by MarkPending.
-func (p *Player) markStopped() {
-	p.mu.Lock()
-	p.state = Stopped
+	if !p.closed {
+		p.state = Playing
+	}
 	p.mu.Unlock()
 }
 
 func (p *Player) TogglePause() {
+	p.consumeCompletion()
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.ctrl == nil {
+	ctrl := p.ctrl
+	p.mu.Unlock()
+	if ctrl == nil {
 		return
 	}
-	speaker.Lock()
-	p.ctrl.Paused = !p.ctrl.Paused
-	speaker.Unlock()
-	if p.ctrl.Paused {
-		p.state = Paused
-	} else {
-		p.state = Playing
+	p.backend.Lock()
+	ctrl.Paused = !ctrl.Paused
+	paused := ctrl.Paused
+	p.backend.Unlock()
+	p.mu.Lock()
+	if p.ctrl == ctrl {
+		if paused {
+			p.state = Paused
+		} else {
+			p.state = Playing
+		}
 	}
+	p.mu.Unlock()
 }
 
-// Pause is idempotent and reports whether a loaded stream exists.
 func (p *Player) Pause() bool {
+	p.consumeCompletion()
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.ctrl == nil {
+	ctrl := p.ctrl
+	p.mu.Unlock()
+	if ctrl == nil {
 		return false
 	}
-	speaker.Lock()
-	p.ctrl.Paused = true
-	speaker.Unlock()
-	p.state = Paused
+	p.backend.Lock()
+	ctrl.Paused = true
+	p.backend.Unlock()
+	p.mu.Lock()
+	if p.ctrl == ctrl {
+		p.state = Paused
+	}
+	p.mu.Unlock()
 	return true
 }
 
-// Seek moves playback position by delta. Clamps to [0, total). No-op if stopped.
-func (p *Player) Seek(delta time.Duration) {
+func (p *Player) Seek(delta time.Duration) bool {
+	p.consumeCompletion()
 	p.mu.Lock()
-	stream := p.streamer
-	srcRate := p.srcRate
-	tot := p.total
+	stream, srcRate, total := p.streamer, p.srcRate, p.total
 	p.mu.Unlock()
-
-	if stream == nil || tot == 0 {
-		return
+	if stream == nil || total <= 0 {
+		return false
 	}
-
-	speaker.Lock()
-	pos := srcRate.D(stream.Position())
-	target := pos + delta
-	if target < 0 {
-		target = 0
+	p.backend.Lock()
+	position := srcRate.D(stream.Position()) + delta
+	if position < 0 {
+		position = 0
 	}
-	if target >= tot {
-		target = tot - time.Millisecond
+	if position >= total {
+		position = total - time.Millisecond
 	}
-	_ = stream.Seek(srcRate.N(target))
-	speaker.Unlock()
+	err := stream.Seek(srcRate.N(position))
+	p.backend.Unlock()
+	return err == nil
 }
 
-// SeekTo jumps to an absolute playback position and clamps to [0,total).
-// It returns false when no track is loaded.
 func (p *Player) SeekTo(position time.Duration) bool {
+	p.consumeCompletion()
 	p.mu.Lock()
-	stream := p.streamer
-	srcRate := p.srcRate
-	tot := p.total
+	stream, srcRate, total := p.streamer, p.srcRate, p.total
 	p.mu.Unlock()
-	if stream == nil || tot <= 0 {
+	if stream == nil || total <= 0 {
 		return false
 	}
 	if position < 0 {
 		position = 0
 	}
-	if position >= tot {
-		position = tot - time.Millisecond
+	if position >= total {
+		position = total - time.Millisecond
 	}
-	speaker.Lock()
+	p.backend.Lock()
 	err := stream.Seek(srcRate.N(position))
-	speaker.Unlock()
+	p.backend.Unlock()
 	return err == nil
 }
 
-// SetVolume sets playback volume in [0.0, 1.0]. Takes effect immediately.
-func (p *Player) SetVolume(v float64) {
-	if v < 0 {
-		v = 0
+func (p *Player) SetVolume(value float64) {
+	if value < 0 {
+		value = 0
 	}
-	if v > 1 {
-		v = 1
+	if value > 1 {
+		value = 1
 	}
 	p.mu.Lock()
-	p.volume = v
-	vc := p.volCtrl
+	p.volume = value
+	volume := p.volCtrl
 	p.mu.Unlock()
-
-	if vc != nil {
-		speaker.Lock()
-		vc.volume = v
-		speaker.Unlock()
+	if volume != nil {
+		p.backend.Lock()
+		volume.volume = value
+		p.backend.Unlock()
 	}
 }
 
-// Volume returns the current volume in [0.0, 1.0].
 func (p *Player) Volume() float64 {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -301,29 +459,26 @@ func (p *Player) Volume() float64 {
 }
 
 func (p *Player) State() State {
+	p.consumeCompletion()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.state
 }
 
 func (p *Player) Progress() (ratio float64, elapsed, total time.Duration) {
+	p.consumeCompletion()
 	p.mu.Lock()
-	stream := p.streamer
-	srcRate := p.srcRate
-	tot := p.total
+	stream, srcRate, duration := p.streamer, p.srcRate, p.total
 	p.mu.Unlock()
-
-	if stream == nil || tot == 0 {
+	if stream == nil || duration <= 0 {
 		return 0, 0, 0
 	}
-
-	speaker.Lock()
-	pos := srcRate.D(stream.Position())
-	speaker.Unlock()
-
-	ratio = float64(pos) / float64(tot)
+	p.backend.Lock()
+	position := srcRate.D(stream.Position())
+	p.backend.Unlock()
+	ratio = float64(position) / float64(duration)
 	if ratio > 1 {
 		ratio = 1
 	}
-	return ratio, pos, tot
+	return ratio, position, duration
 }

@@ -1,14 +1,20 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/Padrosum/pmusic/internal/config"
+	"github.com/Padrosum/pmusic/internal/store"
+	"github.com/Padrosum/pmusic/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/padros/pmusic/internal/config"
-	"github.com/padros/pmusic/internal/store"
-	"github.com/padros/pmusic/internal/ui"
+)
+
+var (
+	version = "dev"
+	commit  = "unknown"
 )
 
 func main() {
@@ -16,6 +22,9 @@ func main() {
 		switch os.Args[1] {
 		case "-s", "--sync", "sync":
 			runSync()
+			return
+		case "-v", "--version", "version":
+			fmt.Printf("pmusic %s (commit %s)\n", version, commit)
 			return
 		default:
 			runPlayer(os.Args[1])
@@ -66,8 +75,10 @@ func runPlayer(dir string) {
 	}
 
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
-	if _, err := p.Run(); err != nil {
-		fatalf("%v", err)
+	_, runErr := p.Run()
+	closeErr := m.Close()
+	if runErr != nil || closeErr != nil {
+		fatalf("%v", errors.Join(runErr, closeErr))
 	}
 }
 

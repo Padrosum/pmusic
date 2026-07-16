@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	pmcfg "github.com/padros/pmusic/internal/config"
+	pmcfg "github.com/Padrosum/pmusic/internal/config"
 	glua "github.com/yuin/gopher-lua"
 )
 
@@ -47,10 +47,10 @@ type Engine struct {
 	L  *glua.LState
 
 	theme         Theme
-	keymaps       map[string]string           // raw key string → action name
-	keyFuncs      map[string]*glua.LFunction  // raw key string → Lua function
-	musicDir      string                      // configured music directory
-	pendingNotify string                      // consumed by PopNotification
+	keymaps       map[string]string          // raw key string → action name
+	keyFuncs      map[string]*glua.LFunction // raw key string → Lua function
+	musicDir      string                     // configured music directory
+	pendingNotify string                     // consumed by PopNotification
 
 	// current track — updated by CallOnSongChange so pmusic.current_track()
 	// always returns live data regardless of when a plugin was loaded.

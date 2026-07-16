@@ -1,4 +1,4 @@
-module github.com/padros/pmusic
+module github.com/Padrosum/pmusic
 
 go 1.26.3
 

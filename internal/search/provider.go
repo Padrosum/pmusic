@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+
+	"github.com/Padrosum/pmusic/internal/urlutil"
 )
 
 var (
@@ -45,7 +47,12 @@ func ClassifyInput(input string) (InputKind, string, error) {
 		return InputQuery, "", ErrEmptyQuery
 	}
 	if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") {
-		return InputURL, value, nil
+		validated, err := urlutil.ValidateHTTP(value)
+		return InputURL, validated, err
+	}
+	if strings.Contains(value, "://") {
+		_, err := urlutil.ValidateHTTP(value)
+		return InputURL, "", err
 	}
 	return InputQuery, value, nil
 }

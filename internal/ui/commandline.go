@@ -1,13 +1,14 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"unicode"
 
+	"github.com/Padrosum/pmusic/internal/ui/command"
+	"github.com/Padrosum/pmusic/internal/ui/command/builtin"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/padros/pmusic/internal/ui/command"
-	"github.com/padros/pmusic/internal/ui/command/builtin"
 )
 
 type commandLineModel struct {
@@ -35,7 +36,10 @@ func newCommandLine() (commandLineModel, error) {
 		h, err = command.LoadHistory(path)
 	}
 	if h == nil {
-		h, _ = command.LoadHistory("")
+		h, err = command.LoadHistory("")
+		if err != nil {
+			return commandLineModel{}, fmt.Errorf("initialize in-memory history: %w", err)
+		}
 	}
 	ti := textinput.New()
 	ti.CharLimit = 2000
@@ -109,7 +113,7 @@ func (m *Model) handleCommandLine(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 	case tickMsg:
-		return m, tickCmd()
+		return m, m.tickCmd()
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyEsc, tea.KeyCtrlC:

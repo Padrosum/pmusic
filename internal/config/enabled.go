@@ -1,9 +1,10 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"github.com/Padrosum/pmusic/internal/persistence"
 )
 
 type Enabled struct {
@@ -24,15 +25,14 @@ func LoadEnabled() (Enabled, error) {
 	if err != nil {
 		return Enabled{}, err
 	}
-	data, err := os.ReadFile(p)
-	if os.IsNotExist(err) {
-		return Enabled{}, nil
-	}
+	e, found, err := persistence.LoadJSON[Enabled](p, nil)
 	if err != nil {
 		return Enabled{}, err
 	}
-	var e Enabled
-	return e, json.Unmarshal(data, &e)
+	if !found {
+		return Enabled{}, nil
+	}
+	return e, nil
 }
 
 func SaveEnabled(e Enabled) error {
@@ -40,14 +40,7 @@ func SaveEnabled(e Enabled) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(e, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(p, data, 0o644)
+	return persistence.SaveJSON(p, e)
 }
 
 func (e *Enabled) Has(kind, name string) bool {

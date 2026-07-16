@@ -57,6 +57,8 @@ func (m *Model) renderCommandHelp() string {
 	for i := m.commandHelp.offset; i < end; i++ {
 		line := truncate(lines[i], contentW)
 		switch {
+		case i == 0:
+			rendered = append(rendered, styleTitle.Render("  "+strings.TrimPrefix(line, "::")))
 		case i == m.commandHelp.offset && strings.HasPrefix(line, "::"):
 			rendered = append(rendered, styleTitle.Render("  "+strings.TrimPrefix(line, "::")))
 		case line == "pmusic Command Help":

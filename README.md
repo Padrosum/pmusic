@@ -30,6 +30,8 @@ A terminal-based (TUI) local music player written in Go.
 - **Progress bar** with elapsed time / total duration display
 - **Loop mode** — repeat the current track (`r`)
 - **Automatic track switching** — plays the next track when the current one ends
+- **Listening statistics** — local play, completion, skip, listening-time, and top-track history through `:stats`
+- **Adaptive refresh rate** — smooth 4 Hz playback animation with a lower-power 1 Hz idle loop
 - **Live directory watching** — automatically refreshes when files are added or removed
 - **Persistent configuration** — music directory is saved to `~/.config/pmusic/config.json`
 - **Lua scripting** — theme, keybindings, and event hooks configurable without recompiling
@@ -58,6 +60,13 @@ cd pmusic
 go build -o pmusic .
 ```
 
+For a smaller release binary with debug tables and local source paths removed:
+
+```sh
+make release
+# output: dist/pmusic
+```
+
 ## Usage
 
 ```sh
@@ -69,6 +78,9 @@ pmusic ~/Music
 
 # Download all bundled plugins and themes to ~/.config/pmusic/lua/
 pmusic -s
+
+# Print build version and commit information
+pmusic --version
 ```
 
 On first startup a setup screen appears asking for your music folder path. This is saved to `~/.config/pmusic/config.json` and won't be asked again.
@@ -115,6 +127,8 @@ Examples:
 - `:download Duman Seni Kendime Sakladım`
 - `:reload lua`
 - `:help seek`
+- `:stats week`
+- `:stats artist Metallica`
 - `:quit`
 
 Use `Tab` and `Shift+Tab` for completion, `↑`/`↓` for suggestions or command
@@ -123,6 +137,12 @@ clears the line, `Ctrl+W` deletes the previous word, and `Esc` or `Ctrl+C`
 returns to normal mode. Command history is kept in
 `$XDG_STATE_HOME/pmusic/command-history` (or
 `~/.local/state/pmusic/command-history`).
+
+Listening activity is stored locally in
+`$XDG_STATE_HOME/pmusic/listening-stats.json`. Use `:stats`, `:stats week`,
+`:stats all`, or `:stats artist <name>` to inspect listening time, started
+tracks, completions, skips, and top tracks. Statistics are written atomically
+with user-only file permissions.
 
 ## Mouse
 
@@ -161,6 +181,11 @@ Requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) in `$PATH` (and its normal a
 ## Plugin Store
 
 pmusic has a built-in plugin manager. Run `pmusic -s` once to download all bundled plugins and themes, then press `g` inside pmusic to enable or disable them without editing any files.
+
+Sync downloads are pinned to an immutable repository commit, size-limited, and
+SHA-256 verified before atomically replacing an installed file. Lua extensions
+are trusted code rather than a sandbox; review [the security model](docs/security.md)
+before enabling third-party code.
 
 ```sh
 pmusic -s        # download plugins + themes to ~/.config/pmusic/lua/
@@ -348,7 +373,7 @@ pmusic.register_keymap("d", "vol_down")  -- d → volume down
 
 ## Requirements
 
-- Go 1.21+
+- Go 1.26.3+ (for building from source; the minimum follows `go.mod`)
 - System audio driver (ALSA on Linux, CoreAudio on macOS, DirectSound on Windows)
 
 ## Why pmusic?

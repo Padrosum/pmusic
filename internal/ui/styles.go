@@ -1,8 +1,8 @@
 package ui
 
 import (
+	luaeng "github.com/Padrosum/pmusic/internal/lua"
 	"github.com/charmbracelet/lipgloss"
-	luaeng "github.com/padros/pmusic/internal/lua"
 )
 
 var (

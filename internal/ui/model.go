@@ -2,27 +2,30 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/Padrosum/pmusic/internal/blackjack"
+	pmcfg "github.com/Padrosum/pmusic/internal/config"
+	pmdownload "github.com/Padrosum/pmusic/internal/download"
+	pfs "github.com/Padrosum/pmusic/internal/fs"
+	"github.com/Padrosum/pmusic/internal/listening"
+	luaeng "github.com/Padrosum/pmusic/internal/lua"
+	"github.com/Padrosum/pmusic/internal/meta"
+	"github.com/Padrosum/pmusic/internal/player"
+	pmsearch "github.com/Padrosum/pmusic/internal/search"
+	pmstore "github.com/Padrosum/pmusic/internal/store"
+	"github.com/Padrosum/pmusic/internal/watcher"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/padros/pmusic/internal/blackjack"
-	pmcfg "github.com/padros/pmusic/internal/config"
-	pmdownload "github.com/padros/pmusic/internal/download"
-	pfs "github.com/padros/pmusic/internal/fs"
-	luaeng "github.com/padros/pmusic/internal/lua"
-	"github.com/padros/pmusic/internal/meta"
-	"github.com/padros/pmusic/internal/player"
-	pmsearch "github.com/padros/pmusic/internal/search"
-	pmstore "github.com/padros/pmusic/internal/store"
-	"github.com/padros/pmusic/internal/watcher"
 )
 
 type panel int
@@ -40,6 +43,32 @@ type libraryReloadedMsg struct {
 	root    *pfs.Folder
 	folders []*pfs.Folder
 	err     error
+}
+
+type playbackOrigin string
+
+const (
+	playbackSelected playbackOrigin = "selection"
+	playbackNext     playbackOrigin = "next"
+	playbackPrevious playbackOrigin = "previous"
+	playbackLoop     playbackOrigin = "loop"
+	playbackQueue    playbackOrigin = "queue"
+	playbackMouse    playbackOrigin = "mouse"
+)
+
+type playbackStartedMsg struct {
+	track      pfs.Track
+	origin     playbackOrigin
+	folder     int
+	trackIndex int
+	requestID  uint64
+}
+
+type playbackFailedMsg struct {
+	track     pfs.Track
+	origin    playbackOrigin
+	err       error
+	requestID uint64
 }
 
 // mascot animation constants — each frame line is rendered at fixed width via lipgloss.
@@ -95,8 +124,11 @@ type Model struct {
 	searchCancel    context.CancelFunc
 	downloadCancel  context.CancelFunc
 
-	showSearch  bool
-	searchInput textinput.Model
+	showSearch         bool
+	searchInput        textinput.Model
+	searchResults      []pfs.Track
+	searchQuery        string
+	searchResultsValid bool
 
 	showBlackjack bool
 	bjGame        *blackjack.Game
@@ -106,6 +138,7 @@ type Model struct {
 	queue       []pfs.Track
 	showQueue   bool
 	queueCursor int
+	saveQueueFn func([]pfs.Track) error
 
 	watcher *watcher.Watcher
 	rootDir string
@@ -120,10 +153,19 @@ type Model struct {
 	notification string
 	notifyUntil  time.Time
 
-	commandLine      commandLineModel
-	commandHelp      commandHelpModel
-	mutedVolume      int
-	trackSearchCache map[string]trackSearchInfo
+	commandLine       commandLineModel
+	commandHelp       commandHelpModel
+	mutedVolume       int
+	trackSearchCache  map[string]trackSearchInfo
+	listening         *listening.Store
+	lastListeningTick time.Time
+	playGeneration    uint64
+	statsGeneration   uint64
+	playbackRequestID uint64
+	playbackFailed    bool
+	reducingGlobal    bool
+	closeOnce         sync.Once
+	closeErr          error
 }
 
 func New(rootDir string) (*Model, error) {
@@ -133,7 +175,10 @@ func New(rootDir string) (*Model, error) {
 	}
 	folders := pfs.FlatFolders(root)
 
-	p := player.New()
+	p, err := player.New()
+	if err != nil {
+		return nil, fmt.Errorf("audio: %w", err)
+	}
 	si := textinput.New()
 	si.Placeholder = "Search tracks (/)..."
 	si.CharLimit = 100
@@ -158,13 +203,35 @@ func New(rootDir string) (*Model, error) {
 		m.notification = "history: " + cl.initWarning.Error()
 		m.notifyUntil = time.Now().Add(5 * time.Second)
 	}
+	statsPath, statsPathErr := listening.DefaultPath()
+	if statsPathErr == nil {
+		m.listening, err = listening.Load(statsPath)
+	}
+	if m.listening == nil {
+		m.listening, err = listening.Load("")
+		if err != nil {
+			return nil, fmt.Errorf("initialize in-memory listening store: %w", err)
+		}
+	}
+	if statsPathErr != nil || err != nil {
+		statsErr := err
+		if statsErr == nil {
+			statsErr = statsPathErr
+		}
+		m.notification = "listening stats: " + statsErr.Error()
+		m.notifyUntil = time.Now().Add(5 * time.Second)
+	}
 	youtube := pmsearch.NewYouTube()
 	m.searchProvider = youtube
 	m.urlResolver = youtube
 
-	q, _ := pmcfg.LoadQueue()
+	q, queueErr := pmcfg.LoadQueue()
 	if q != nil {
 		m.queue = q
+	}
+	if queueErr != nil {
+		m.notification = "queue: " + queueErr.Error()
+		m.notifyUntil = time.Now().Add(10 * time.Second)
 	}
 
 	p.SetOnDone(func() {
@@ -176,6 +243,9 @@ func New(rootDir string) (*Model, error) {
 	})
 	if err == nil {
 		m.watcher = w
+	} else {
+		m.notification = "library watcher: " + err.Error()
+		m.notifyUntil = time.Now().Add(10 * time.Second)
 	}
 
 	eng := luaeng.New()
@@ -192,7 +262,7 @@ func New(rootDir string) (*Model, error) {
 
 func (m *Model) Init() tea.Cmd {
 	return tea.Batch(
-		tickCmd(),
+		m.tickCmd(),
 		tea.SetWindowTitle("pmusic"),
 	)
 }
@@ -203,32 +273,58 @@ func tickCmd() tea.Cmd {
 	})
 }
 
+func (m *Model) tickCmd() tea.Cmd {
+	interval := m.tickInterval()
+	return tea.Tick(interval, func(t time.Time) tea.Msg { return tickMsg(t) })
+}
+
+func (m *Model) tickInterval() time.Duration {
+	interval := time.Second
+	if m.player != nil && m.player.State() == player.Playing {
+		interval = time.Second / 4
+	}
+	if m.showMusicSearch && (m.musicSearch.state == musicSearchLoading || m.musicSearch.state == musicSearchDownloading) {
+		interval = time.Second / 4
+	}
+	return interval
+}
+
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if cmd, handled := m.handleMusicSearchMessage(msg); handled {
 		return m, cmd
 	}
+	// Overlays own terminal input, not application lifecycle messages. Keeping
+	// resize, ticks, reloads, and playback results on the shared reducer path
+	// prevents an open modal from freezing or dropping background work.
+	if !isTerminalInput(msg) && !m.reducingGlobal {
+		return m.reduceGlobal(msg)
+	}
 	// Command input owns every key while active, before overlays, Lua keymaps,
 	// and global shortcuts. This prevents typed q/n/p/space/j/k from leaking.
-	if m.commandLine.active {
+	if !m.reducingGlobal && m.commandLine.active {
 		return m.handleCommandLine(msg)
 	}
-	if m.commandHelp.show {
+	if !m.reducingGlobal && m.commandHelp.show {
 		return m.handleCommandHelp(msg)
 	}
 
-	if m.showMusicSearch {
+	if !m.reducingGlobal && m.showMusicSearch {
 		return m.handleMusicSearch(msg)
 	}
 
-	if m.showSearch {
+	if !m.reducingGlobal && m.showSearch {
+		before := m.searchInput.Value()
 		var inputCmd tea.Cmd
 		m.searchInput, inputCmd = m.searchInput.Update(msg)
+		if before != m.searchInput.Value() {
+			m.searchResultsValid = false
+		}
 		switch msg := msg.(type) {
 		case tea.WindowSizeMsg:
 			m.width = msg.Width
 			m.height = msg.Height
 		case tickMsg:
-			return m, tea.Batch(tickCmd(), inputCmd)
+			return m, tea.Batch(m.tickCmd(), inputCmd)
 		case tea.KeyMsg:
 			switch msg.Type {
 			case tea.KeyEsc, tea.KeyEnter:
@@ -265,13 +361,35 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.root, m.folders = msg.root, msg.folders
 			m.trackSearchCache = make(map[string]trackSearchInfo)
+			m.searchResultsValid = false
 			m.folderIdx = min(m.folderIdx, max(0, len(m.folders)-1))
 			m.trackIdx = 0
 			m.notify(fmt.Sprintf("Library reloaded: %d folders", len(m.folders)))
 		}
 		return m, nil
 
+	case playbackStartedMsg:
+		if msg.requestID != m.playbackRequestID {
+			return m, nil
+		}
+		track := msg.track
+		m.nowPlaying = &track
+		if msg.folder >= 0 && msg.trackIndex >= 0 {
+			m.nowFolder, m.nowTrack = msg.folder, msg.trackIndex
+		}
+		m.playbackFailed = false
+		return m, nil
+
+	case playbackFailedMsg:
+		if msg.requestID != m.playbackRequestID {
+			return m, nil
+		}
+		m.playbackFailed = true
+		m.notify(fmt.Sprintf("Could not play %s: %v. Playback stopped. (%s)", msg.track.Name, msg.err, msg.track.Path))
+		return m, nil
+
 	case tickMsg:
+		now := time.Time(msg)
 		m.uiFrame = (m.uiFrame + 1) % 120
 		// Advance mascot animation frame while playing.
 		if m.player.State() == player.Playing {
@@ -288,11 +406,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.watcher != nil && m.watcher.Changed() {
 			m.rescan()
 		}
+		if m.watcher != nil {
+			if err := m.watcher.TakeError(); err != nil {
+				m.notify("library watcher: " + err.Error())
+			}
+		}
 
 		// Fire on_song_change hook and load metadata when the playing track changes.
-		if m.nowPlaying != nil && m.nowPlaying.Path != m.prevPlayingPath {
+		trackChanged := m.nowPlaying != nil && m.nowPlaying.Path != m.prevPlayingPath
+		playbackChanged := m.playGeneration != m.statsGeneration
+		if trackChanged {
 			m.prevPlayingPath = m.nowPlaying.Path
-			m.nowMeta = meta.Read(m.nowPlaying.Path)
+			m.nowMeta = m.trackSearchInfo(*m.nowPlaying).meta
 			folder := ""
 			if m.nowFolder < len(m.folders) {
 				folder = m.folders[m.nowFolder].Name
@@ -302,6 +427,27 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Cache state once so both the hook check and auto-advance use the same snapshot.
 		st := m.player.State()
+		wasPlaying := m.prevState == player.Playing
+		if m.listening != nil {
+			if m.nowPlaying != nil && st != player.Stopped {
+				track := listening.Track{Path: m.nowPlaying.Path, Name: m.nowPlaying.Name, Artist: m.nowMeta.Artist, Album: m.nowMeta.Album}
+				if playbackChanged {
+					m.listening.Restart(track, now)
+				} else {
+					m.listening.Start(track, now)
+				}
+				m.statsGeneration = m.playGeneration
+			}
+			if st == player.Playing && wasPlaying && !playbackChanged && !trackChanged && !m.lastListeningTick.IsZero() {
+				m.listening.Listen(now.Sub(m.lastListeningTick), now)
+			}
+			m.lastListeningTick = now
+			if m.listening.ShouldSave(now) {
+				if err := m.listening.Save(); err != nil {
+					m.notify("listening stats: " + err.Error())
+				}
+			}
+		}
 
 		// Fire on_state_change hook when play/pause/stop state transitions.
 		if st != m.prevState {
@@ -319,7 +465,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Auto-advance (or loop) when a track ends naturally.
-		if m.nowPlaying != nil && st == player.Stopped {
+		if m.nowPlaying != nil && st == player.Stopped && !m.playbackFailed {
+			if m.listening != nil {
+				m.listening.FinishPath(m.nowPlaying.Path, true, now)
+			}
 			var cmd tea.Cmd
 			if m.loop {
 				cmd = m.replayCurrent()
@@ -332,9 +481,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.nowPlaying = nil
 				m.nowMeta = meta.Meta{}
 			}
-			return m, tea.Batch(tickCmd(), cmd)
+			return m, tea.Batch(m.tickCmd(), cmd)
 		}
-		return m, tickCmd()
+		return m, m.tickCmd()
 
 	case tea.MouseMsg:
 		return m.handleMouse(msg)
@@ -397,14 +546,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch {
 		case key.Matches(msg, keys.Quit):
-			if m.downloadCancel != nil {
-				m.downloadCancel()
-			}
-			m.player.Stop()
-			if m.watcher != nil {
-				m.watcher.Close()
-			}
-			m.luaEngine.Close()
+			m.shutdown()
 			return m, tea.Quit
 
 		case key.Matches(msg, keys.ReloadLua):
@@ -490,6 +632,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func isTerminalInput(msg tea.Msg) bool {
+	switch msg.(type) {
+	case tea.KeyMsg, tea.MouseMsg:
+		return true
+	default:
+		return false
+	}
+}
+
+// reduceGlobal feeds non-input messages back through the normal reducer after
+// modal routing has been bypassed. The concrete cases remain in Update so
+// there is still one implementation for every lifecycle transition.
+func (m *Model) reduceGlobal(msg tea.Msg) (tea.Model, tea.Cmd) {
+	m.reducingGlobal = true
+	defer func() { m.reducingGlobal = false }()
+	return m.Update(msg)
+}
+
 // dispatchAction executes a named action — used by Lua keymaps.
 func (m *Model) dispatchAction(action string) tea.Cmd {
 	switch action {
@@ -508,14 +668,7 @@ func (m *Model) dispatchAction(action string) tea.Cmd {
 	case "reload_lua":
 		return m.reloadLuaCmd()
 	case "quit":
-		if m.downloadCancel != nil {
-			m.downloadCancel()
-		}
-		m.player.Stop()
-		if m.watcher != nil {
-			m.watcher.Close()
-		}
-		m.luaEngine.Close()
+		m.shutdown()
 		return tea.Quit
 	case "vol_up":
 		m.player.SetVolume(m.player.Volume() + 0.1)
@@ -531,6 +684,57 @@ func (m *Model) dispatchAction(action string) tea.Cmd {
 		m.player.Seek(30 * time.Second)
 	}
 	return nil
+}
+
+func (m *Model) shutdown() {
+	if err := m.Close(); err != nil {
+		m.notify("shutdown: " + err.Error())
+	}
+}
+
+// Close is the single idempotent lifecycle boundary for model-owned resources.
+func (m *Model) Close() error {
+	m.closeOnce.Do(func() {
+		var closeErrors []error
+		if m.searchCancel != nil {
+			m.searchCancel()
+		}
+		if m.downloadCancel != nil {
+			m.downloadCancel()
+		}
+		if m.listening != nil {
+			closeErrors = append(closeErrors, m.listening.Save())
+		}
+		if m.player != nil {
+			closeErrors = append(closeErrors, m.player.Close())
+		}
+		if m.watcher != nil {
+			closeErrors = append(closeErrors, m.watcher.Close())
+		}
+		if m.luaEngine != nil {
+			m.luaEngine.Close()
+		}
+		m.closeErr = errors.Join(closeErrors...)
+	})
+	return m.closeErr
+}
+
+func (m *Model) markPlaybackPending() {
+	m.playGeneration++
+	m.playbackFailed = false
+	m.player.MarkPending()
+}
+
+func (m *Model) startPlayback(track pfs.Track, origin playbackOrigin, folder, trackIndex int) tea.Cmd {
+	m.playbackRequestID++
+	requestID := m.playbackRequestID
+	m.markPlaybackPending()
+	return func() tea.Msg {
+		if err := m.player.Play(track.Path); err != nil {
+			return playbackFailedMsg{track: track, origin: origin, err: err, requestID: requestID}
+		}
+		return playbackStartedMsg{track: track, origin: origin, folder: folder, trackIndex: trackIndex, requestID: requestID}
+	}
 }
 
 // reloadLuaCmd returns a Cmd that reloads the Lua VM in a background goroutine.
@@ -576,6 +780,9 @@ func (m *Model) currentTracks() []pfs.Track {
 	if query == "" {
 		return m.folders[m.folderIdx].Tracks
 	}
+	if m.searchResultsValid && query == m.searchQuery {
+		return m.searchResults
+	}
 	var filtered []pfs.Track
 	for _, f := range m.folders {
 		for _, t := range f.Tracks {
@@ -584,7 +791,8 @@ func (m *Model) currentTracks() []pfs.Track {
 			}
 		}
 	}
-	return filtered
+	m.searchQuery, m.searchResults, m.searchResultsValid = query, filtered, true
+	return m.searchResults
 }
 
 func (m *Model) playSelected() tea.Cmd {
@@ -593,21 +801,11 @@ func (m *Model) playSelected() tea.Cmd {
 		return nil
 	}
 	t := tracks[m.trackIdx]
-	m.nowPlaying = &t
+	fi, ti := m.folderIdx, m.trackIdx
 	if fi, ti, ok := m.locateTrack(t.Path); ok {
-		m.nowFolder = fi
-		m.nowTrack = ti
-	} else {
-		m.nowFolder = m.folderIdx
-		m.nowTrack = m.trackIdx
+		return m.startPlayback(t, playbackSelected, fi, ti)
 	}
-	// Mark pending before goroutine starts so tick doesn't trigger auto-advance.
-	m.player.MarkPending()
-	path := t.Path
-	return func() tea.Msg {
-		m.player.Play(path)
-		return tickMsg(time.Now())
-	}
+	return m.startPlayback(t, playbackSelected, fi, ti)
 }
 
 func (m *Model) playNext() tea.Cmd {
@@ -630,16 +828,8 @@ func (m *Model) playNext() tea.Cmd {
 	if fi >= len(m.folders) || len(m.folders[fi].Tracks) == 0 {
 		return nil
 	}
-	m.nowFolder = fi
-	m.nowTrack = ti
 	t := m.folders[fi].Tracks[ti]
-	m.nowPlaying = &t
-	m.player.MarkPending()
-	path := t.Path
-	return func() tea.Msg {
-		m.player.Play(path)
-		return tickMsg(time.Now())
-	}
+	return m.startPlayback(t, playbackNext, fi, ti)
 }
 
 func (m *Model) playPrev() tea.Cmd {
@@ -666,16 +856,8 @@ func (m *Model) playPrev() tea.Cmd {
 	if fi >= len(m.folders) || len(m.folders[fi].Tracks) == 0 {
 		return nil
 	}
-	m.nowFolder = fi
-	m.nowTrack = ti
 	t := m.folders[fi].Tracks[ti]
-	m.nowPlaying = &t
-	m.player.MarkPending()
-	path := t.Path
-	return func() tea.Msg {
-		m.player.Play(path)
-		return tickMsg(time.Now())
-	}
+	return m.startPlayback(t, playbackPrevious, fi, ti)
 }
 
 func (m *Model) replayCurrent() tea.Cmd {
@@ -688,13 +870,7 @@ func (m *Model) replayCurrent() tea.Cmd {
 		return nil
 	}
 	t := m.folders[fi].Tracks[ti]
-	m.nowPlaying = &t
-	m.player.MarkPending()
-	path := t.Path
-	return func() tea.Msg {
-		m.player.Play(path)
-		return tickMsg(time.Now())
-	}
+	return m.startPlayback(t, playbackLoop, fi, ti)
 }
 
 // locateTrack returns the folder/track indices of the track with the given path.
@@ -709,20 +885,29 @@ func (m *Model) locateTrack(path string) (int, int, bool) {
 	return 0, 0, false
 }
 
+func (m *Model) persistQueue() error {
+	if m.saveQueueFn != nil {
+		return m.saveQueueFn(m.queue)
+	}
+	return pmcfg.SaveQueue(m.queue)
+}
+
 func (m *Model) saveQueue() {
-	pmcfg.SaveQueue(m.queue)
+	if err := m.persistQueue(); err != nil {
+		m.notify("queue save: " + err.Error())
+	}
 }
 
 // enqueueSelected appends the cursor's track (or the whole highlighted folder)
 // to the play queue and shows a confirmation notification.
 func (m *Model) enqueueSelected() {
-	defer m.saveQueue()
 	if m.focused == panelFolders {
 		tracks := m.currentTracks()
 		if len(tracks) == 0 {
 			return
 		}
 		m.queue = append(m.queue, tracks...)
+		m.saveQueue()
 		m.notify(fmt.Sprintf("folder queued: %d tracks (%d)", len(tracks), len(m.queue)))
 		return
 	}
@@ -732,6 +917,7 @@ func (m *Model) enqueueSelected() {
 	}
 	t := tracks[m.trackIdx]
 	m.queue = append(m.queue, t)
+	m.saveQueue()
 	m.notify(fmt.Sprintf("queued: %s  (%d)", t.Name, len(m.queue)))
 }
 
@@ -747,21 +933,15 @@ func (m *Model) playFromQueue() tea.Cmd {
 	if len(m.queue) == 0 {
 		return nil
 	}
-	defer m.saveQueue()
 	t := m.queue[0]
 	m.queue = m.queue[1:]
-	m.nowPlaying = &t
+	m.saveQueue()
+	fi, ti := m.nowFolder, m.nowTrack
 	// Anchor sequential fallback to this track's library position when possible.
-	if fi, ti, ok := m.locateTrack(t.Path); ok {
-		m.nowFolder = fi
-		m.nowTrack = ti
+	if foundFolder, foundTrack, ok := m.locateTrack(t.Path); ok {
+		fi, ti = foundFolder, foundTrack
 	}
-	m.player.MarkPending()
-	path := t.Path
-	return func() tea.Msg {
-		m.player.Play(path)
-		return tickMsg(time.Now())
-	}
+	return m.startPlayback(t, playbackQueue, fi, ti)
 }
 
 func (m *Model) rescan() {
@@ -774,6 +954,7 @@ func (m *Model) rescan() {
 	m.root = root
 	m.folders = pfs.FlatFolders(root)
 	m.trackSearchCache = make(map[string]trackSearchInfo)
+	m.searchResultsValid = false
 	if m.folderIdx >= len(m.folders) {
 		m.folderIdx = max(0, len(m.folders)-1)
 	}
@@ -837,15 +1018,11 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			m.trackIdx = idx
 			m.focused = panelTracks
 			t := tracks[idx]
-			m.nowPlaying = &t
-			m.nowFolder = m.folderIdx
-			m.nowTrack = idx
-			m.player.MarkPending()
-			path := t.Path
-			return m, func() tea.Msg {
-				m.player.Play(path)
-				return tickMsg(time.Now())
+			fi, ti := m.folderIdx, idx
+			if foundFolder, foundTrack, ok := m.locateTrack(t.Path); ok {
+				fi, ti = foundFolder, foundTrack
 			}
+			return m, m.startPlayback(t, playbackMouse, fi, ti)
 		}
 	}
 	return m, nil
@@ -1412,8 +1589,8 @@ func (m *Model) renderStore() string {
 
 // handleQueue processes key input while the queue overlay is active.
 func (m *Model) handleQueue(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	defer m.saveQueue()
 	n := len(m.queue)
+	mutated := false
 	switch {
 	case key.Matches(msg, keys.Queue), key.Matches(msg, keys.Quit):
 		m.showQueue = false
@@ -1429,11 +1606,13 @@ func (m *Model) handleQueue(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.queueCursor < n-1 {
 			m.queue[m.queueCursor], m.queue[m.queueCursor+1] = m.queue[m.queueCursor+1], m.queue[m.queueCursor]
 			m.queueCursor++
+			mutated = true
 		}
 	case msg.String() == "K": // move selected item up
 		if m.queueCursor > 0 {
 			m.queue[m.queueCursor], m.queue[m.queueCursor-1] = m.queue[m.queueCursor-1], m.queue[m.queueCursor]
 			m.queueCursor--
+			mutated = true
 		}
 	case msg.String() == "d", msg.String() == "x": // remove selected
 		if n > 0 && m.queueCursor < n {
@@ -1441,10 +1620,14 @@ func (m *Model) handleQueue(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.queueCursor >= len(m.queue) {
 				m.queueCursor = max(0, len(m.queue)-1)
 			}
+			mutated = true
 		}
 	case msg.String() == "c": // clear the queue
-		m.queue = nil
-		m.queueCursor = 0
+		if len(m.queue) > 0 {
+			m.queue = nil
+			m.queueCursor = 0
+			mutated = true
+		}
 	case key.Matches(msg, keys.Enter): // play the selected item now
 		if n > 0 && m.queueCursor < n {
 			t := m.queue[m.queueCursor]
@@ -1452,18 +1635,16 @@ func (m *Model) handleQueue(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.queueCursor >= len(m.queue) {
 				m.queueCursor = max(0, len(m.queue)-1)
 			}
-			m.nowPlaying = &t
+			m.saveQueue()
+			fi, ti := m.nowFolder, m.nowTrack
 			if fi, ti, ok := m.locateTrack(t.Path); ok {
-				m.nowFolder = fi
-				m.nowTrack = ti
+				return m, m.startPlayback(t, playbackQueue, fi, ti)
 			}
-			m.player.MarkPending()
-			path := t.Path
-			return m, func() tea.Msg {
-				m.player.Play(path)
-				return tickMsg(time.Now())
-			}
+			return m, m.startPlayback(t, playbackQueue, fi, ti)
 		}
+	}
+	if mutated {
+		m.saveQueue()
 	}
 	return m, nil
 }

@@ -1,0 +1,17 @@
+/pmusic
+/dist/
+
+# Go test, coverage, benchmark, and profiling output
+*.test
+coverage.out
+coverage-*.out
+*.prof
+*.pprof
+*.trace
+
+# Editor and operating-system files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~

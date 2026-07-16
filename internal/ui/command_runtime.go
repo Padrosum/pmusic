@@ -7,17 +7,18 @@ import (
 	"strings"
 	"time"
 
+	pfs "github.com/Padrosum/pmusic/internal/fs"
+	"github.com/Padrosum/pmusic/internal/listening"
+	"github.com/Padrosum/pmusic/internal/meta"
+	"github.com/Padrosum/pmusic/internal/player"
+	"github.com/Padrosum/pmusic/internal/ui/command"
 	tea "github.com/charmbracelet/bubbletea"
-	pmcfg "github.com/padros/pmusic/internal/config"
-	pfs "github.com/padros/pmusic/internal/fs"
-	"github.com/padros/pmusic/internal/meta"
-	"github.com/padros/pmusic/internal/player"
-	"github.com/padros/pmusic/internal/ui/command"
 )
 
 type trackSearchInfo struct {
 	display string
 	search  string
+	meta    meta.Meta
 }
 
 func (m *Model) trackSearchInfo(t pfs.Track) trackSearchInfo {
@@ -32,7 +33,7 @@ func (m *Model) trackSearchInfo(t pfs.Track) trackSearchInfo {
 	if md.Artist != "" {
 		display = md.Artist + " — " + display
 	}
-	info := trackSearchInfo{display: display, search: strings.ToLower(strings.Join([]string{t.Name, md.Title, md.Artist, display}, " "))}
+	info := trackSearchInfo{display: display, search: strings.ToLower(strings.Join([]string{t.Name, md.Title, md.Artist, display}, " ")), meta: md}
 	if m.trackSearchCache == nil {
 		m.trackSearchCache = make(map[string]trackSearchInfo)
 	}
@@ -163,7 +164,7 @@ func (m *Model) ClearQueue() (int, error) {
 	n := len(m.queue)
 	m.queue = nil
 	m.queueCursor = 0
-	if err := pmcfg.SaveQueue(m.queue); err != nil {
+	if err := m.persistQueue(); err != nil {
 		return 0, err
 	}
 	return n, nil
@@ -173,6 +174,7 @@ func (m *Model) OpenLocalSearch(query string) {
 	m.searchInput.SetValue(query)
 	m.searchInput.CursorEnd()
 	m.trackIdx = 0
+	m.searchResultsValid = false
 	m.focused = panelTracks
 	m.searchInput.Focus()
 }
@@ -198,6 +200,60 @@ func (m *Model) ReloadLibrary() tea.Cmd {
 }
 func (m *Model) OpenHelp(topic string) error { return m.openRegistryHelp(topic) }
 func (m *Model) OpenHistory(limit int)       { m.openHistoryHelp(limit) }
+func (m *Model) OpenStats(scope, query string) error {
+	if m.listening == nil {
+		return &command.RuntimeCommandError{Message: "Listening statistics are unavailable."}
+	}
+	var summary listening.Summary
+	title := "Today's Listening"
+	switch scope {
+	case "today":
+		summary = m.listening.Period(1, time.Now())
+	case "week":
+		title = "Listening · Last 7 Days"
+		summary = m.listening.Period(7, time.Now())
+	case "all":
+		title = "Listening · All Time"
+		summary = m.listening.Artist("")
+	case "artist":
+		title = "Artist · " + query
+		summary = m.listening.Artist(query)
+	}
+	lines := []string{
+		title, "",
+		fmt.Sprintf("Listening time   %s", formatListeningSeconds(summary.ListeningSeconds)),
+		fmt.Sprintf("Tracks started   %d", summary.Plays),
+		fmt.Sprintf("Completed        %d", summary.Completions),
+		fmt.Sprintf("Skipped          %d", summary.Skips),
+		"", "Top tracks",
+	}
+	if len(summary.Top) == 0 {
+		lines = append(lines, "  No listening activity recorded yet.")
+	} else {
+		for i, track := range summary.Top {
+			name := track.Name
+			if track.Artist != "" {
+				name = track.Artist + " — " + name
+			}
+			lines = append(lines, fmt.Sprintf("  %2d. %-38s %s", i+1, truncate(name, 38), formatListeningSeconds(track.ListeningSeconds)))
+		}
+	}
+	lines = append(lines, "", "j/k:scroll  PgUp/PgDn  g/G  Esc/q:close")
+	m.commandHelp.show = true
+	m.commandHelp.topic = ""
+	m.commandHelp.lines = lines
+	m.commandHelp.offset = 0
+	m.commandHelp.historyLines = lines
+	return nil
+}
+
+func formatListeningSeconds(seconds int64) string {
+	d := time.Duration(seconds) * time.Second
+	if d >= time.Hour {
+		return fmt.Sprintf("%dh %02dm", int(d/time.Hour), int(d%time.Hour/time.Minute))
+	}
+	return fmt.Sprintf("%dm %02ds", int(d/time.Minute), int(d%time.Minute/time.Second))
+}
 func (m *Model) ClearHistory() error {
 	if err := m.commandLine.history.Clear(); err != nil {
 		return err
@@ -210,14 +266,7 @@ func (m *Model) Quit(force bool) (tea.Cmd, error) {
 	if m.downloadCancel != nil && !force {
 		return nil, &command.RuntimeCommandError{Message: "A download is active. Use :q! to cancel it and quit."}
 	}
-	if m.downloadCancel != nil {
-		m.downloadCancel()
-	}
-	m.player.Stop()
-	if m.watcher != nil {
-		m.watcher.Close()
-	}
-	m.luaEngine.Close()
+	m.shutdown()
 	return tea.Quit, nil
 }
 func (m *Model) TrackCompletions(query string, limit int) []command.CompletionItem {

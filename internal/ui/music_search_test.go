@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	pmsearch "github.com/Padrosum/pmusic/internal/search"
 	"github.com/charmbracelet/lipgloss"
-	pmsearch "github.com/padros/pmusic/internal/search"
 )
 
 func TestClampSelection(t *testing.T) {

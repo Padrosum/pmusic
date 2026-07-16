@@ -53,11 +53,11 @@ func renderCard(c Card) []string {
 	padR := strings.Repeat(" ", 7-len(rank))
 	padL := strings.Repeat(" ", 7-len(rank))
 
-	line1 := textStyle.Render(rank + padR)             // "A      " / "10     "
-	line2 := textStyle.Render(suit + "      ")          // "♠      "
-	line3 := textStyle.Render("   " + suit + "   ")    // "   ♠   "
-	line4 := textStyle.Render("      " + suit)          // "      ♠"
-	line5 := textStyle.Render(padL + rank)             // "      A" / "     10"
+	line1 := textStyle.Render(rank + padR)          // "A      " / "10     "
+	line2 := textStyle.Render(suit + "      ")      // "♠      "
+	line3 := textStyle.Render("   " + suit + "   ") // "   ♠   "
+	line4 := textStyle.Render("      " + suit)      // "      ♠"
+	line5 := textStyle.Render(padL + rank)          // "      A" / "     10"
 
 	top := "╭───────╮"
 	bot := "╰───────╯"

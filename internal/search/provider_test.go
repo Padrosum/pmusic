@@ -3,6 +3,8 @@ package search
 import (
 	"errors"
 	"testing"
+
+	"github.com/Padrosum/pmusic/internal/urlutil"
 )
 
 func TestClassifyInput(t *testing.T) {
@@ -16,7 +18,8 @@ func TestClassifyInput(t *testing.T) {
 		{name: "query", input: "  metallica orion  ", kind: InputQuery, value: "metallica orion"},
 		{name: "https URL", input: "https://soundcloud.com/example/song", kind: InputURL, value: "https://soundcloud.com/example/song"},
 		{name: "http URL", input: "http://example.com/song", kind: InputURL, value: "http://example.com/song"},
-		{name: "URL-shaped input remains direct", input: "https://", kind: InputURL, value: "https://"},
+		{name: "invalid URL-shaped input", input: "https://", kind: InputURL, err: urlutil.ErrInvalidURL},
+		{name: "invalid scheme", input: "file:///tmp/song", kind: InputURL, err: urlutil.ErrInvalidURL},
 		{name: "empty", input: " \t\n ", kind: InputQuery, err: ErrEmptyQuery},
 	}
 	for _, tt := range tests {

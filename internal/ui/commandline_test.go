@@ -3,18 +3,26 @@ package ui
 import (
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	pfs "github.com/Padrosum/pmusic/internal/fs"
+	"github.com/Padrosum/pmusic/internal/listening"
+	luaeng "github.com/Padrosum/pmusic/internal/lua"
+	"github.com/Padrosum/pmusic/internal/player"
+	"github.com/Padrosum/pmusic/internal/ui/command"
+	"github.com/Padrosum/pmusic/internal/ui/command/builtin"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	pfs "github.com/padros/pmusic/internal/fs"
-	luaeng "github.com/padros/pmusic/internal/lua"
-	"github.com/padros/pmusic/internal/player"
-	"github.com/padros/pmusic/internal/ui/command"
-	"github.com/padros/pmusic/internal/ui/command/builtin"
+	"github.com/faiface/beep"
 )
 
 func commandTestModel(t *testing.T) *Model {
+	return commandTestModelWithDecoder(t, &uiTestDecoder{})
+}
+
+func commandTestModelWithDecoder(t *testing.T, decoder player.Decoder) *Model {
 	t.Helper()
 	r, err := command.NewRegistry(builtin.Commands()...)
 	if err != nil {
@@ -25,8 +33,53 @@ func commandTestModel(t *testing.T) *Model {
 		t.Fatal(err)
 	}
 	cl := commandLineModel{input: newCommandInput(), registry: r, history: h}
-	return &Model{width: 90, height: 30, player: player.New(), luaEngine: luaeng.New(), searchInput: newSearchInput(), musicSearch: newMusicSearchModel(), commandLine: cl, commandHelp: newCommandHelpModel()}
+	p, err := player.NewWithBackend(uiTestAudioBackend{}, decoder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &Model{width: 90, height: 30, player: p, luaEngine: luaeng.New(), searchInput: newSearchInput(), musicSearch: newMusicSearchModel(), commandLine: cl, commandHelp: newCommandHelpModel()}
 }
+
+type uiTestAudioBackend struct {
+	closeCalls *atomic.Int32
+}
+
+func (uiTestAudioBackend) Init(beep.SampleRate, int) error { return nil }
+func (uiTestAudioBackend) Lock()                           {}
+func (uiTestAudioBackend) Unlock()                         {}
+func (uiTestAudioBackend) Clear()                          {}
+func (uiTestAudioBackend) Play(beep.Streamer)              {}
+func (b uiTestAudioBackend) Close() error {
+	if b.closeCalls != nil {
+		b.closeCalls.Add(1)
+	}
+	return nil
+}
+
+type uiTestDecoder struct {
+	err   error
+	calls atomic.Int32
+}
+
+func (d *uiTestDecoder) Decode(string) (beep.StreamSeekCloser, beep.Format, error) {
+	d.calls.Add(1)
+	if d.err != nil {
+		return nil, beep.Format{}, d.err
+	}
+	return &uiTestStream{length: int(beep.SampleRate(44100))}, beep.Format{SampleRate: 44100, NumChannels: 2, Precision: 2}, nil
+}
+
+type uiTestStream struct {
+	position int
+	length   int
+}
+
+func (*uiTestStream) Stream([][2]float64) (int, bool) { return 0, true }
+func (*uiTestStream) Err() error                      { return nil }
+func (s *uiTestStream) Len() int                      { return s.length }
+func (s *uiTestStream) Position() int                 { return s.position }
+func (s *uiTestStream) Seek(position int) error       { s.position = position; return nil }
+func (*uiTestStream) Close() error                    { return nil }
 func newCommandInput() textinput.Model {
 	ti := textinput.New()
 	ti.CharLimit = 2000
@@ -124,6 +177,52 @@ func TestCommandLineSmallViewDoesNotPanic(t *testing.T) {
 	m.refreshCompletions()
 	if view := m.View(); view == "" {
 		t.Fatal("empty view")
+	}
+}
+func TestStatsCommandOpensRecordedActivity(t *testing.T) {
+	m := commandTestModel(t)
+	m.listening, _ = listening.Load("")
+	now := time.Now()
+	m.listening.Start(listening.Track{Path: "/one", Name: "One", Artist: "Metallica"}, now)
+	m.listening.Listen(65*time.Second, now)
+	m.listening.Finish(true, now)
+	executeTestCommand(m, "stats artist Metallica")
+	view := strings.Join(m.commandHelp.lines, "\n")
+	if !m.commandHelp.show || !strings.Contains(view, "Artist · Metallica") || !strings.Contains(view, "Tracks started   1") {
+		t.Fatalf("stats overlay:\n%s", view)
+	}
+}
+func TestAdaptiveTickIntervals(t *testing.T) {
+	m := commandTestModel(t)
+	if got := m.tickInterval(); got != time.Second {
+		t.Fatalf("idle tick=%v", got)
+	}
+	m.player.MarkPending()
+	if got := m.tickInterval(); got != time.Second/4 {
+		t.Fatalf("playing tick=%v", got)
+	}
+	m.player.Stop()
+	m.showMusicSearch = true
+	m.musicSearch.state = musicSearchLoading
+	if got := m.tickInterval(); got != time.Second/4 {
+		t.Fatalf("loading tick=%v", got)
+	}
+}
+func TestPlaybackLifecycleRecordsListeningCompletionAndSkip(t *testing.T) {
+	m := commandTestModel(t)
+	m.listening, _ = listening.Load("")
+	now := time.Now()
+	m.nowPlaying = &pfs.Track{Name: "One", Path: "/one"}
+	m.player.MarkPending()
+	m.Update(tickMsg(now))
+	m.Update(tickMsg(now.Add(time.Second)))
+	m.nowPlaying = &pfs.Track{Name: "Two", Path: "/two"}
+	m.Update(tickMsg(now.Add(2 * time.Second)))
+	m.player.Stop()
+	m.Update(tickMsg(now.Add(3 * time.Second)))
+	summary := m.listening.Period(1, now.Add(3*time.Second))
+	if summary.Plays != 2 || summary.Skips != 1 || summary.Completions != 1 || summary.ListeningSeconds != 1 {
+		t.Fatalf("lifecycle summary=%#v", summary)
 	}
 }
 func executeTestCommand(m *Model, value string) {

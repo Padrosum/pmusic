@@ -33,7 +33,8 @@ func (e *Engine) registerAPI(L *glua.LState, dir string) {
 
 // pmusic.set_theme({ accent="#88C0D0", dim="#4C566A", ... })
 // Fields: accent, dim, selected_bg, now_playing, border, border_active,
-//         title, status_bg, panel_bg, key
+//
+//	title, status_bg, panel_bg, key
 func (e *Engine) luaSetTheme(L *glua.LState) int {
 	t := L.CheckTable(1)
 	set := func(field string, dst *string) {

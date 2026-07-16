@@ -96,6 +96,7 @@ type Runtime interface {
 	ReloadLibrary() tea.Cmd
 	OpenHelp(topic string) error
 	OpenHistory(limit int)
+	OpenStats(scope, query string) error
 	ClearHistory() error
 	Notify(message string)
 	Quit(force bool) (tea.Cmd, error)

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Padrosum/pmusic/internal/ui/command"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/padros/pmusic/internal/ui/command"
 )
 
 func Commands() []command.Command {
@@ -28,6 +28,7 @@ func Commands() []command.Command {
 		{Name: "quit", Aliases: []string{"q"}, Category: "Application", Summary: "Quit pmusic", Description: "Exit through pmusic's normal cleanup path. Add ! to force-cancel active work.", Usage: ":quit[!]", Examples: []string{":quit", ":q!"}, Execute: quit},
 		{Name: "help", Aliases: []string{"h"}, Category: "Application", Summary: "Browse command help", Description: "Open searchable, scrollable help generated from the command registry.", Usage: ":help [commands|keys|command]", Examples: []string{":help", ":help seek"}, Execute: help},
 		{Name: "history", Aliases: []string{"hist"}, Category: "Application", Summary: "View or clear command history", Description: "Open recent command history, limit it to N entries, or clear persistent history.", Usage: ":history [N|clear]", Examples: []string{":history", ":history 20", ":history clear"}, Subcommands: []command.Subcommand{{Name: "clear", Description: "Clear session and persistent command history"}}, Execute: history},
+		{Name: "stats", Aliases: []string{"statistics"}, Category: "Application", Summary: "Show listening activity", Description: "Inspect plays, skips, completions, listening time, and top tracks for today, this week, all time, or an artist.", Usage: ":stats [today|week|all|artist <name>]", Examples: []string{":stats", ":stats week", ":stats artist Metallica"}, Subcommands: []command.Subcommand{{Name: "today", Description: "Today's listening activity"}, {Name: "week", Description: "The last seven days"}, {Name: "all", Description: "All recorded activity"}, {Name: "artist", Description: "Activity for a matching artist"}}, Execute: stats},
 	}
 }
 
@@ -297,4 +298,21 @@ func history(rt command.Runtime, p command.ParsedCommand) (tea.Cmd, error) {
 	}
 	rt.OpenHistory(n)
 	return nil, nil
+}
+func stats(rt command.Runtime, p command.ParsedCommand) (tea.Cmd, error) {
+	scope := "today"
+	if len(p.Args) > 0 {
+		scope = strings.ToLower(p.Args[0])
+	}
+	query := ""
+	if len(p.Args) > 1 {
+		query = strings.Join(p.Args[1:], " ")
+	}
+	if scope == "artist" && strings.TrimSpace(query) == "" {
+		return nil, &command.MissingArgumentError{Message: "Missing artist name.", Usage: ":stats artist <name>"}
+	}
+	if scope != "today" && scope != "week" && scope != "all" && scope != "artist" {
+		return nil, &command.InvalidArgumentError{Message: "Unknown statistics scope: " + scope, Usage: ":stats [today|week|all|artist <name>]"}
+	}
+	return nil, rt.OpenStats(scope, query)
 }

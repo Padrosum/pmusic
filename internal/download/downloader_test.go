@@ -36,3 +36,25 @@ func TestBuildArgsRejectsEmptyURL(t *testing.T) {
 		t.Fatalf("error = %v, want ErrInvalidURL", err)
 	}
 }
+
+func TestDownloaderTerminatesOptionsBeforeURL(t *testing.T) {
+	args, err := BuildArgs("/music", "https://example.com/-playlist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(args) < 2 || args[len(args)-2] != "--" || args[len(args)-1] != "https://example.com/-playlist" {
+		t.Fatalf("argument tail = %#v", args)
+	}
+}
+
+func TestDownloaderRejectsInvalidScheme(t *testing.T) {
+	if _, err := BuildArgs("/music", "file:///etc/passwd"); err != ErrInvalidURL {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestDownloaderRejectsControlCharacters(t *testing.T) {
+	if _, err := BuildArgs("/music", "https://example.com/song\n--exec=bad"); err != ErrInvalidURL {
+		t.Fatalf("error = %v", err)
+	}
+}
