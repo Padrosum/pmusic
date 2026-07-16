@@ -2,8 +2,15 @@ name: Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
+
+# A newer main build must never be replaced by a slower, older workflow run.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -13,24 +20,52 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
       - name: Build release binary
-        env:
-          VERSION: ${{ github.ref_name }}
-          COMMIT: ${{ github.sha }}
         run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="edge-${GITHUB_SHA::7}"
+          fi
+          echo "RELEASE_VERSION=${version}" >> "${GITHUB_ENV}"
+
           mkdir -p dist
           go build -mod=readonly -trimpath \
-            -ldflags="-s -w -X main.version=${VERSION#v} -X main.commit=${COMMIT}" \
+            -ldflags="-s -w -X main.version=${version} -X main.commit=${GITHUB_SHA}" \
             -o dist/pmusic-linux-amd64 .
       - name: Reject non-binary output
         run: |
           test -s dist/pmusic-linux-amd64
           file dist/pmusic-linux-amd64 | grep -q 'ELF 64-bit'
-      - uses: softprops/action-gh-release@v2
+          test "$(dist/pmusic-linux-amd64 --version)" = \
+            "pmusic ${RELEASE_VERSION} (commit ${GITHUB_SHA})"
+      - name: Move edge tag to this commit
+        if: github.ref_type == 'branch'
+        run: |
+          git tag --force edge "${GITHUB_SHA}"
+          git push --force origin refs/tags/edge
+      - name: Publish rolling edge release
+        if: github.ref_type == 'branch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: edge
+          name: Edge (latest main build)
+          prerelease: true
+          make_latest: false
+          body: |
+            Automated build of `${{ github.sha }}` from `main`.
+
+            This prerelease is replaced after every commit to `main`.
+          files: dist/pmusic-linux-amd64
+      - name: Publish versioned release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
         with:
           files: dist/pmusic-linux-amd64
           generate_release_notes: true

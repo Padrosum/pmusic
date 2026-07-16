@@ -56,8 +56,19 @@ Make sure `$(go env GOPATH)/bin` is in your `PATH`.
 
 ### From a release
 
+Latest stable version:
+
 ```sh
 curl -fL -o pmusic https://github.com/Padrosum/pmusic/releases/latest/download/pmusic-linux-amd64
+chmod +x pmusic
+sudo install pmusic /usr/local/bin/pmusic
+```
+
+Every commit merged to `main` is also compiled and published to the rolling
+`edge` prerelease. To install that build instead:
+
+```sh
+curl -fL -o pmusic https://github.com/Padrosum/pmusic/releases/download/edge/pmusic-linux-amd64
 chmod +x pmusic
 sudo install pmusic /usr/local/bin/pmusic
 ```
