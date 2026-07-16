@@ -30,13 +30,21 @@ A terminal-based (TUI) local music player written in Go.
 - **Progress bar** with elapsed time / total duration display
 - **Loop mode** — repeat the current track (`r`)
 - **Automatic track switching** — plays the next track when the current one ends
-- **Listening statistics** — local play, completion, skip, listening-time, and top-track history through `:stats`
 - **Adaptive refresh rate** — smooth 4 Hz playback animation with a lower-power 1 Hz idle loop
 - **Live directory watching** — automatically refreshes when files are added or removed
 - **Persistent configuration** — music directory is saved to `~/.config/pmusic/config.json`
+- **Persistent play queue** — queue tracks or whole folders, reorder them, and continue across restarts
+- **Local library search** — find tracks without leaving the player
+- **Listening statistics** — inspect listening time, starts, completions, skips, artists, and top tracks
+- **Vim-style command mode** — searchable help, completion, aliases, suggestions, and persistent history
 - **Lua scripting** — theme, keybindings, and event hooks configurable without recompiling
+- **Blackjack mini-game** — play from inside the TUI while your music continues
 
 ## Installation
+
+The published GitHub binary currently targets **Linux x86-64/AMD64**. Users on
+another architecture or operating system should use `go install` or build from
+source.
 
 ### With ppd (recommended)
 
@@ -46,17 +54,16 @@ ppd install pmusic
 
 > ppd: https://github.com/Padrosum/ppd
 
-### With Go
+### From GitHub Releases
 
-```sh
-go install github.com/Padrosum/pmusic@latest
-```
+There are two release channels:
 
-Make sure `$(go env GOPATH)/bin` is in your `PATH`.
+| Channel | Purpose | Updated when |
+|---------|---------|--------------|
+| Stable | Versioned, permanent releases | A `v*` version tag is published |
+| Edge | Latest successful `main` build; may contain unfinished changes | Every commit pushed to `main` |
 
-### From a release
-
-Latest stable version:
+Install the latest stable release:
 
 ```sh
 curl -fL -o pmusic https://github.com/Padrosum/pmusic/releases/latest/download/pmusic-linux-amd64
@@ -64,8 +71,7 @@ chmod +x pmusic
 sudo install pmusic /usr/local/bin/pmusic
 ```
 
-Every commit merged to `main` is also compiled and published to the rolling
-`edge` prerelease. To install that build instead:
+Or install the continuously updated edge build:
 
 ```sh
 curl -fL -o pmusic https://github.com/Padrosum/pmusic/releases/download/edge/pmusic-linux-amd64
@@ -73,19 +79,53 @@ chmod +x pmusic
 sudo install pmusic /usr/local/bin/pmusic
 ```
 
+`curl -fL` makes the command fail instead of saving a GitHub error page as the
+`pmusic` executable.
+
+### With Go
+
+On Debian/Ubuntu, install the Linux audio development dependencies first:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y libasound2-dev pkg-config
+```
+
+```sh
+go install github.com/Padrosum/pmusic@latest
+```
+
+Make sure `$(go env GOPATH)/bin` is in your `PATH`. This method requires the Go
+version declared in `go.mod` or newer.
+
 ### Build from source
 
 ```sh
 git clone https://github.com/Padrosum/pmusic
 cd pmusic
 go build -o pmusic .
+sudo install pmusic /usr/local/bin/pmusic
 ```
 
-For a smaller release binary with debug tables and local source paths removed:
+For a smaller binary with embedded version information, debug tables, and local
+source paths removed:
 
 ```sh
 make release
-# outputs: pmusic (ppd) and dist/pmusic
+sudo install dist/pmusic /usr/local/bin/pmusic
+```
+
+`make release` writes the ppd-compatible binary to `pmusic` and mirrors it to
+`dist/pmusic`.
+
+### Optional download support
+
+Local playback has no external command dependency. Online search and downloads
+additionally require `yt-dlp` and FFmpeg to be available in `PATH`:
+
+```sh
+yt-dlp --version
+ffmpeg -version
 ```
 
 If an older ppd installation fails with `syntax error` followed by
@@ -135,7 +175,11 @@ On first startup a setup screen appears asking for your music folder path. This 
 | `:` | Open Vim-style command mode |
 | `?` | Show / hide help overlay |
 | `Y` | Open music search and download screen |
+| `/` | Search the local music library |
+| `a` | Add the selected track or folder to the queue |
+| `u` | Open or close the play queue |
 | `g` | Open plugin / theme store |
+| `b` | Open or close the Blackjack mini-game |
 | `Ctrl+R` | Reload Lua config (hot-reload) |
 | `q` / `Ctrl+C` | Quit |
 
@@ -405,6 +449,8 @@ pmusic.register_keymap("d", "vol_down")  -- d → volume down
 
 - Go 1.26.3+ (for building from source; the minimum follows `go.mod`)
 - System audio driver (ALSA on Linux, CoreAudio on macOS, DirectSound on Windows)
+- ALSA development headers and `pkg-config` for Linux source builds
+- `yt-dlp` and FFmpeg only for online search/download support
 
 ## Why pmusic?
 

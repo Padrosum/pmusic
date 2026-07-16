@@ -26,6 +26,10 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Install Linux audio dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev pkg-config
       - name: Build release binary
         run: |
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
@@ -43,7 +47,7 @@ jobs:
         run: |
           test -s dist/pmusic-linux-amd64
           file dist/pmusic-linux-amd64 | grep -q 'ELF 64-bit'
-          test "$(dist/pmusic-linux-amd64 --version)" = \
+          test "$(./dist/pmusic-linux-amd64 --version)" = \
             "pmusic ${RELEASE_VERSION} (commit ${GITHUB_SHA})"
       - name: Move edge tag to this commit
         if: github.ref_type == 'branch'

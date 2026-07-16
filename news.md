@@ -1,5 +1,28 @@
 # pmusic Haberler ve Değişiklik Notları
 
+## 2026-07-16 — Her commit için otomatik edge release
+
+- GitHub Actions release akışı `main` branch'ine gelen her commit'te çalışacak
+  şekilde genişletildi.
+- Her başarılı `main` derlemesi, tek ve sürekli güncellenen `edge` prerelease'i
+  altında `pmusic-linux-amd64` olarak yayımlanıyor. Böylece her commit için ayrı
+  bir release kaydı oluşturulup release listesinin şişmesi engelleniyor.
+- `edge` etiketi daima son başarılı `main` commit'ine taşınıyor; daha eski ve
+  yavaş bir workflow çalışmasının yeni binary'yi ezmemesi için eşzamanlılık
+  koruması eklendi.
+- `v*` tag'leri kalıcı/stabil release üretmeye ve otomatik release notları
+  oluşturmaya devam ediyor.
+- Release binary'sinin boş olmadığı, Linux AMD64 ELF biçiminde olduğu ve doğru
+  version/commit bilgisini taşıdığı yayımlamadan önce doğrulanıyor.
+- Ubuntu CI/release runner'larına Go build öncesinde `libasound2-dev` ve
+  `pkg-config` kuruluyor; `oto`/ALSA başlıklarının eksik olmasından kaynaklanan
+  derleme hatası giderildi.
+- README kurulum kanallarını ayıracak şekilde güncellendi: ppd, stabil GitHub
+  release, sürekli güncellenen edge build, `go install` ve kaynaktan derleme.
+- README'nin özellik ve kısayol listeleri oynatma kuyruğu, yerel arama,
+  dinleme istatistikleri, komut sistemi ve Blackjack mini oyununu içerecek
+  şekilde mevcut uygulamayla eşleştirildi.
+
 ## 2026-07-16 — ppd kurulum regresyonu düzeltmesi
 
 - Kaynak takibinden çıkarılan repository-root `pmusic` binary'sine bağlı eski
@@ -8,7 +31,7 @@
 - ppd'nin mevcut doğrudan-binary sözleşmesiyle uyumluluk için release binary'si
   repository köküne geri getirildi ve Git takibine yeniden açıldı.
 - `v*` tag'leri için doğrulanmış `pmusic-linux-amd64` varlığı üreten GitHub
-  release workflow'u eklendi.
+  release workflow'unun ilk sürümü eklendi.
 - README'ye güvenli indirme (`curl -fL`) ve bozuk ppd kurulumunu yerel release
   binary'siyle onarma adımları eklendi.
 
