@@ -1,5 +1,28 @@
 # pmusic Haberler ve Değişiklik Notları
 
+## 2026-07-16 — Kurulum yönergeleri güncellendi
+
+- GitHub'da şu anda yayımlanan Linux AMD64 `edge` binary'si doğrulandı ve
+  README'de çalışan hızlı kurulum yöntemi olarak öne çıkarıldı.
+- Henüz stabil release bulunmadığı için 404 üretebilen
+  `/releases/latest/` kurulum komutu kaldırıldı.
+- ppd, `go install` ve kaynaktan derleme yöntemleri birbirinden ayrıldı;
+  mimari, Go ve ALSA build gereksinimleri açıkça belirtildi.
+- Kurulum doğrulaması için `pmusic --version`, edge güncellemesi için aynı
+  kurulum komutlarını yeniden çalıştırma ve ppd için `ppd update` bilgileri
+  eklendi.
+- Eski 404 regresyonuna özel, artık güncel olmayan onarım bölümü kaldırıldı.
+
+## 2026-07-16 — Proje amacı ve katkı kuralları belgelendi
+
+- Projenin kişisel, minimalist, özgür yazılım ve yerel müzik öncelikli amacı
+  yeni `kurallar.md` belgesinde tanımlandı.
+- Her özellik, düzeltme, bağımlılık ve dağıtım değişikliğinin aynı değişiklik
+  seti içinde `news.md` dosyasına eklenmesi zorunlu proje kuralı haline
+  getirildi.
+- Dokümantasyon, geriye uyumluluk, kullanıcı verisi, test, bağımlılık seçimi ve
+  kapsam kontrolü için ortak geliştirme ilkeleri ve kontrol listesi eklendi.
+
 ## 2026-07-16 — Her commit için otomatik edge release
 
 - GitHub Actions release akışı `main` branch'ine gelen her commit'te çalışacak

@@ -42,81 +42,72 @@ A terminal-based (TUI) local music player written in Go.
 
 ## Installation
 
-The published GitHub binary currently targets **Linux x86-64/AMD64**. Users on
-another architecture or operating system should use `go install` or build from
-source.
+### Quick install (Linux x86-64)
 
-### With ppd (recommended)
+The currently published binary is the automatically updated `edge` build for
+**64-bit x86 Linux**. Check that `uname -m` prints `x86_64`, then run:
+
+```sh
+curl -fL https://github.com/Padrosum/pmusic/releases/download/edge/pmusic-linux-amd64 \
+  -o pmusic-linux-amd64
+sudo install -m 0755 pmusic-linux-amd64 /usr/local/bin/pmusic
+pmusic --version
+```
+
+`edge` is rebuilt after every successful commit to `main`, so it may contain
+new or unfinished changes. The `-f` flag makes `curl` fail instead of saving a
+GitHub error page as an executable.
+
+To update later, run the same three commands again.
+
+### With ppd
+
+If [ppd](https://github.com/Padrosum/ppd) is already installed:
 
 ```sh
 ppd install pmusic
 ```
 
-> ppd: https://github.com/Padrosum/ppd
-
-### From GitHub Releases
-
-There are two release channels:
-
-| Channel | Purpose | Updated when |
-|---------|---------|--------------|
-| Stable | Versioned, permanent releases | A `v*` version tag is published |
-| Edge | Latest successful `main` build; may contain unfinished changes | Every commit pushed to `main` |
-
-Install the latest stable release:
-
-```sh
-curl -fL -o pmusic https://github.com/Padrosum/pmusic/releases/latest/download/pmusic-linux-amd64
-chmod +x pmusic
-sudo install pmusic /usr/local/bin/pmusic
-```
-
-Or install the continuously updated edge build:
-
-```sh
-curl -fL -o pmusic https://github.com/Padrosum/pmusic/releases/download/edge/pmusic-linux-amd64
-chmod +x pmusic
-sudo install pmusic /usr/local/bin/pmusic
-```
-
-`curl -fL` makes the command fail instead of saving a GitHub error page as the
-`pmusic` executable.
+ppd installs the repository-root binary into `/usr/local/bin`. Use `ppd update`
+to update packages managed by ppd.
 
 ### With Go
 
-On Debian/Ubuntu, install the Linux audio development dependencies first:
+This method works on other operating systems and architectures supported by
+pmusic. It requires the Go version declared in `go.mod`; Linux source builds
+also require ALSA development headers. On Debian/Ubuntu:
 
 ```sh
 sudo apt-get update
 sudo apt-get install -y libasound2-dev pkg-config
-```
-
-```sh
 go install github.com/Padrosum/pmusic@latest
 ```
 
-Make sure `$(go env GOPATH)/bin` is in your `PATH`. This method requires the Go
-version declared in `go.mod` or newer.
+Make sure `$(go env GOPATH)/bin` is in your `PATH`, then verify the installation
+with `pmusic --version`.
 
 ### Build from source
 
+On Debian/Ubuntu, install the build requirements first:
+
 ```sh
-git clone https://github.com/Padrosum/pmusic
+sudo apt-get update
+sudo apt-get install -y git libasound2-dev pkg-config
+```
+
+Install the Go version declared in `go.mod` or newer, then clone, build, and
+install pmusic:
+
+```sh
+git clone https://github.com/Padrosum/pmusic.git
 cd pmusic
-go build -o pmusic .
-sudo install pmusic /usr/local/bin/pmusic
-```
-
-For a smaller binary with embedded version information, debug tables, and local
-source paths removed:
-
-```sh
 make release
-sudo install dist/pmusic /usr/local/bin/pmusic
+sudo install -m 0755 dist/pmusic /usr/local/bin/pmusic
+pmusic --version
 ```
 
-`make release` writes the ppd-compatible binary to `pmusic` and mirrors it to
-`dist/pmusic`.
+`make release` creates a stripped binary at `dist/pmusic` and a ppd-compatible
+copy at the repository root.
 
 ### Optional download support
 
@@ -126,15 +117,6 @@ additionally require `yt-dlp` and FFmpeg to be available in `PATH`:
 ```sh
 yt-dlp --version
 ffmpeg -version
-```
-
-If an older ppd installation fails with `syntax error` followed by
-`<!DOCTYPE html>`, it installed GitHub's old 404 page rather than an executable.
-Update after the repository-root binary is published, or repair it locally:
-
-```sh
-make release
-sudo install dist/pmusic /usr/local/bin/pmusic
 ```
 
 ## Usage
