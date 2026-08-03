@@ -27,6 +27,7 @@ type keyMap struct {
 	AddQueue   key.Binding
 	Queue      key.Binding
 	Search     key.Binding
+	Cover      key.Binding
 }
 
 var keys = keyMap{
@@ -54,4 +55,5 @@ var keys = keyMap{
 	AddQueue:   key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "queue+")),
 	Queue:      key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "queue")),
 	Search:     key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
+	Cover:      key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "cover art")),
 }

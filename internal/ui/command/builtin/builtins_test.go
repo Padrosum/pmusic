@@ -67,6 +67,7 @@ func (*mockRuntime) OpenHelp(string) error          { return nil }
 func (*mockRuntime) OpenHistory(int)                {}
 func (*mockRuntime) OpenStats(string, string) error { return nil }
 func (*mockRuntime) OpenWho()                       {}
+func (*mockRuntime) OpenCover() tea.Cmd             { return nil }
 func (*mockRuntime) ClearHistory() error            { return nil }
 func (m *mockRuntime) Notify(v string)              { m.notices = append(m.notices, v) }
 func (*mockRuntime) Quit(bool) (tea.Cmd, error)     { return nil, nil }
@@ -142,7 +143,7 @@ func TestBuiltinRegistryMetadataAndAliases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"pl", "pa", "t", "n", "previous", "p", "vol", "v", "sk", "repeat", "find", "yt", "dl", "source", "q", "h", "hist", "statistics", "profile"} {
+	for _, name := range []string{"pl", "pa", "t", "n", "previous", "p", "vol", "v", "sk", "repeat", "find", "yt", "dl", "source", "q", "h", "hist", "statistics", "profile", "cover"} {
 		if _, ok := r.Resolve(name); !ok {
 			t.Errorf("alias %s missing", name)
 		}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/Padrosum/pmusic/internal/blackjack"
 	pmcfg "github.com/Padrosum/pmusic/internal/config"
+	"github.com/Padrosum/pmusic/internal/cover"
 	pmdownload "github.com/Padrosum/pmusic/internal/download"
 	pfs "github.com/Padrosum/pmusic/internal/fs"
 	"github.com/Padrosum/pmusic/internal/inhibit"
@@ -44,6 +45,15 @@ type libraryReloadedMsg struct {
 	root    *pfs.Folder
 	folders []*pfs.Folder
 	err     error
+}
+
+// coverReadyMsg carries the result of an asynchronous cover art resolve/render.
+type coverReadyMsg struct {
+	path   string
+	lines  []string
+	inline []string
+	source cover.Source
+	err    error
 }
 
 type playbackOrigin string
@@ -168,6 +178,20 @@ type Model struct {
 	reducingGlobal    bool
 	closeOnce         sync.Once
 	closeErr          error
+
+	showCover    bool
+	coverLoading bool
+	coverSource  cover.Source
+	coverError   string
+	coverLines   []string
+	coverInline  []string
+	coverCache   map[string]coverCacheEntry
+}
+
+type coverCacheEntry struct {
+	lines  []string
+	inline []string
+	source cover.Source
 }
 
 func New(rootDir string) (*Model, error) {
@@ -195,6 +219,7 @@ func New(rootDir string) (*Model, error) {
 		downloader:       pmdownload.New(),
 		commandHelp:      newCommandHelpModel(),
 		trackSearchCache: make(map[string]trackSearchInfo),
+		coverCache:       make(map[string]coverCacheEntry),
 	}
 	cl, err := newCommandLine()
 	if err != nil {
@@ -317,6 +342,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleCommandHelp(msg)
 	}
 
+	if !m.reducingGlobal && m.showCover {
+		return m.handleCover(msg)
+	}
+
 	if !m.reducingGlobal && m.showMusicSearch {
 		return m.handleMusicSearch(msg)
 	}
@@ -387,7 +416,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.nowFolder, m.nowTrack = msg.folder, msg.trackIndex
 		}
 		m.playbackFailed = false
-		return m, nil
+		// Preload cover art in the background so it is already visible while
+		// listening, before the user ever presses c or runs :art.
+		return m, m.requestCover()
 
 	case playbackFailedMsg:
 		if msg.requestID != m.playbackRequestID {
@@ -395,6 +426,27 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.playbackFailed = true
 		m.notify(fmt.Sprintf("Could not play %s: %v. Playback stopped. (%s)", msg.track.Name, msg.err, msg.track.Path))
+		return m, nil
+
+	case coverReadyMsg:
+		if m.nowPlaying == nil || msg.path != m.nowPlaying.Path {
+			return m, nil
+		}
+		m.coverLoading = false
+		if msg.err != nil {
+			m.coverError = msg.err.Error()
+			m.coverLines = nil
+			m.coverInline = nil
+		} else {
+			if m.coverCache == nil {
+				m.coverCache = make(map[string]coverCacheEntry)
+			}
+			m.coverLines = msg.lines
+			m.coverInline = msg.inline
+			m.coverSource = msg.source
+			m.coverCache[msg.path] = coverCacheEntry{lines: msg.lines, inline: msg.inline, source: msg.source}
+			m.coverError = ""
+		}
 		return m, nil
 
 	case tickMsg:
@@ -632,6 +684,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.bjGame = blackjack.New()
 			}
 			m.showBlackjack = true
+
+		case key.Matches(msg, keys.Cover):
+			return m, m.toggleCover()
 
 		case key.Matches(msg, keys.AddQueue):
 			m.enqueueSelected()
@@ -1056,6 +1111,9 @@ func (m *Model) View() string {
 	if m.commandHelp.show {
 		return m.renderCommandHelp()
 	}
+	if m.showCover {
+		return m.renderCover()
+	}
 	if m.width < 52 || m.height < 12 {
 		if m.commandLine.active {
 			return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Bottom, m.renderCommandLine(m.width))
@@ -1299,7 +1357,16 @@ func (m *Model) renderBottom(w int) string {
 			displayTitle = m.nowMeta.Artist + " — " + displayTitle
 		}
 		ratio, elapsed, total := m.player.Progress()
-		available := max(12, w-len(fmtDur(elapsed))-len(fmtDur(total))-28)
+
+		// Compact cover thumbnail sits beside the now-playing info.
+		art := m.coverInline
+		showArt := len(art) > 0
+		pad := 0
+		if showArt {
+			pad = m.coverThumbW() + 2
+		}
+
+		available := max(12, w-pad-len(fmtDur(elapsed))-len(fmtDur(total))-28)
 		displayTitle = marquee(displayTitle, available, m.uiFrame/2)
 		motion := ""
 		if m.player.State() == player.Playing {
@@ -1307,13 +1374,27 @@ func (m *Model) renderBottom(w int) string {
 		}
 		label := motion + stateStyle.Render(icon+" "+displayTitle) + loopMark + volStr
 		timeStr := fmt.Sprintf(" %s / %s", fmtDur(elapsed), fmtDur(total))
-		sb.WriteString(label + styleDim.Render(timeStr) + "\n")
+
+		albumLine := ""
 		if m.nowMeta.Album != "" {
-			sb.WriteString(styleDim.Render("  "+m.nowMeta.Album) + "\n")
-		} else {
-			sb.WriteString("\n")
+			albumLine = styleDim.Render("  " + m.nowMeta.Album)
 		}
-		sb.WriteString(renderProgress(w-4, ratio) + "\n")
+		right := []string{
+			label + styleDim.Render(timeStr),
+			albumLine,
+			renderProgress(max(0, w-4-pad), ratio),
+		}
+		for i := 0; i < 3; i++ {
+			line := right[i]
+			if showArt {
+				left := strings.Repeat(" ", m.coverThumbW())
+				if i < len(art) {
+					left = padRight(truncate(art[i], m.coverThumbW()), m.coverThumbW())
+				}
+				line = left + "  " + line
+			}
+			sb.WriteString(line + "\n")
+		}
 	} else {
 		sb.WriteString(styleDim.Render("  nothing playing") + "\n")
 		sb.WriteString(renderProgress(w-4, 0) + "\n")

@@ -201,6 +201,7 @@ func (m *Model) ReloadLibrary() tea.Cmd {
 }
 func (m *Model) OpenHelp(topic string) error { return m.openRegistryHelp(topic) }
 func (m *Model) OpenHistory(limit int)       { m.openHistoryHelp(limit) }
+func (m *Model) OpenCover() tea.Cmd          { return m.openCover() }
 func (m *Model) OpenWho() {
 	lines := []string{
 		"::Alihan Padros Karakuş",

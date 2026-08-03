@@ -98,6 +98,7 @@ type Runtime interface {
 	OpenHistory(limit int)
 	OpenStats(scope, query string) error
 	OpenWho()
+	OpenCover() tea.Cmd
 	ClearHistory() error
 	Notify(message string)
 	Quit(force bool) (tea.Cmd, error)

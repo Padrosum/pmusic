@@ -1,5 +1,21 @@
 # pmusic Haberler ve Değişiklik Notları
 
+## 2026-08-03 — Albüm kapağı (cover art) görüntüleme
+
+- Yeni `:art` (alias `:cover`) komutu ve `c` kısayolu ile çalan parçanın
+  albüm kapağı terminalde gösteriliyor.
+- Kapak sırasıyla: dosyaya gömülü resim (ID3/vorbis), parçanın yanındaki
+  `cover.jpg`/`folder.jpg`/`front.jpg`/`albumart.jpg` dosyaları ve çevrimiçi
+  iTunes araması (önbelleğe `~/.cache/pmusic/covers/` altında kaydedilir).
+- Görüntü, terminalden bağımsız çalışan `chafa` ile ANSI/yarı-blok sanatına
+  dönüştürülür; kurulu değilse arayüz bunu bildirir.
+- İndirilen kapaklar diskte önbelleklendiği için aynı albüm için tekrar ağ
+  isteği atılmaz; çevrimdışı çalışma için gömülü/klasör kapağı yeterlidir.
+- Kapak artık yalnızca `c`/`:art` overlay'inde değil, bir parça çalmaya
+  başladığında **alt bardaki çalan şarkı bilgisinin yanında küçük bir küçük
+  resim (thumbnail)** olarak da gösteriliyor; kapak arka planda otomatik
+  yüklenir ve parça değişince tazelenir.
+
 ## 2026-07-16 — Kurulum yönergeleri güncellendi
 
 - GitHub'da şu anda yayımlanan Linux AMD64 `edge` binary'si doğrulandı ve

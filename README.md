@@ -38,6 +38,7 @@ A terminal-based (TUI) local music player written in Go.
 - **Listening statistics** — inspect listening time, starts, completions, skips, artists, and top tracks
 - **Vim-style command mode** — searchable help, completion, aliases, suggestions, and persistent history
 - **Lua scripting** — theme, keybindings, and event hooks configurable without recompiling
+- **Cover art** — view the current track's album art in the terminal (`c` or `:art`)
 - **Blackjack mini-game** — play from inside the TUI while your music continues
 
 ## Installation
@@ -119,6 +120,18 @@ yt-dlp --version
 ffmpeg -version
 ```
 
+### Optional cover art support
+
+Album art is rendered with [chafa](https://hpjansson.org/chafa/), so cover art
+requires `chafa` in `PATH` (only for the `c` / `:art` feature — playback works
+without it):
+
+```sh
+chafa --version
+```
+
+Arch Linux: `sudo pacman -S chafa` · Debian/Ubuntu: `sudo apt-get install chafa`
+
 ## Usage
 
 ```sh
@@ -162,6 +175,7 @@ On first startup a setup screen appears asking for your music folder path. This 
 | `u` | Open or close the play queue |
 | `g` | Open plugin / theme store |
 | `b` | Open or close the Blackjack mini-game |
+| `c` | Open or close the cover art overlay |
 | `Ctrl+R` | Reload Lua config (hot-reload) |
 | `q` / `Ctrl+C` | Quit |
 
@@ -181,6 +195,7 @@ Examples:
 - `:search Metallica`
 - `:online Metallica`
 - `:download Duman Seni Kendime Sakladım`
+- `:art`
 - `:reload lua`
 - `:help seek`
 - `:stats week`
@@ -233,6 +248,26 @@ Press `Y` to open the music search screen. Enter a song or artist name to search
 Text search is YouTube-only in this version. Direct URLs may point to YouTube, SoundCloud, or any other source supported by yt-dlp; pMusic does not claim that those sites support text search.
 
 Requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) in `$PATH` (and its normal audio conversion dependencies). Downloads run in the background and are written to the configured local music folder. The filesystem watcher adds the resulting MP3 to the library, and pMusic plays it as a local file—it never streams the remote result.
+
+## Cover Art
+
+When a track starts playing, pmusic looks up its album art in the background
+and shows a **small thumbnail in the bottom bar beside the now-playing info** —
+no action needed. Press `c` (or run `:art`) to view the same art in a larger
+centered overlay. The art is searched in this order:
+
+1. **Embedded tags** — the picture stored inside the audio file (ID3 APIC /
+   Vorbis PICTURE)
+2. **Folder files** — `cover.jpg`, `folder.jpg`, `front.jpg`, `albumart.jpg`,
+   or `album.jpg` next to the track
+3. **Online fallback** — if neither exists and the file has artist/album tags,
+   the cover is looked up via the iTunes Search API and cached under
+   `~/.cache/pmusic/covers/`, so it is only fetched once per album
+
+Rendering requires [chafa](https://hpjansson.org/chafa/) in `PATH`; without it
+the overlay explains how to install it. Rendered art is cached in memory per
+track, so re-opening the overlay is instant. Track changes refresh both the
+bottom-bar thumbnail and the overlay automatically.
 
 ## Plugin Store
 
@@ -433,6 +468,7 @@ pmusic.register_keymap("d", "vol_down")  -- d → volume down
 - System audio driver (ALSA on Linux, CoreAudio on macOS, DirectSound on Windows)
 - ALSA development headers and `pkg-config` for Linux source builds
 - `yt-dlp` and FFmpeg only for online search/download support
+- `chafa` only for cover art rendering
 
 ## Why pmusic?
 

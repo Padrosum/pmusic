@@ -31,7 +31,15 @@ func Commands() []command.Command {
 		{Name: "history", Aliases: []string{"hist"}, Category: "Application", Summary: "View or clear command history", Description: "Open recent command history, limit it to N entries, or clear persistent history.", Usage: ":history [N|clear]", Examples: []string{":history", ":history 20", ":history clear"}, Subcommands: []command.Subcommand{{Name: "clear", Description: "Clear session and persistent command history"}}, Execute: history},
 		{Name: "stats", Aliases: []string{"statistics"}, Category: "Application", Summary: "Show listening activity", Description: "Inspect plays, skips, completions, listening time, and top tracks for today, this week, all time, or an artist.", Usage: ":stats [today|week|all|artist <name>]", Examples: []string{":stats", ":stats week", ":stats artist Metallica"}, Subcommands: []command.Subcommand{{Name: "today", Description: "Today's listening activity"}, {Name: "week", Description: "The last seven days"}, {Name: "all", Description: "All recorded activity"}, {Name: "artist", Description: "Activity for a matching artist"}}, Execute: stats},
 		{Name: "who", Aliases: []string{"profile"}, Category: "Application", Summary: "Show the creator's profile", Description: "Display an overview of the pmusic creator: identity, interests, links, and projects.", Usage: ":who", Examples: []string{":who"}, Execute: who},
+		{Name: "art", Aliases: []string{"cover"}, Category: "Library", Summary: "Show the current track's cover art", Description: "Open the cover art overlay for the currently playing track. Art is taken from embedded tags, a cover file next to the track, or an online lookup cached locally.", Usage: ":art", Examples: []string{":art"}, Execute: art},
 	}
+}
+
+func art(rt command.Runtime, p command.ParsedCommand) (tea.Cmd, error) {
+	if err := requireAtMost(p, 0); err != nil {
+		return nil, err
+	}
+	return rt.OpenCover(), nil
 }
 
 func who(rt command.Runtime, p command.ParsedCommand) (tea.Cmd, error) {
