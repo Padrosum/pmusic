@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -37,6 +38,7 @@ type musicSearchModel struct {
 	activeRequest uint64
 	downloadID    uint64
 	downloading   pmsearch.Result
+	destDir       string
 }
 
 type musicSearchCompletedMsg struct {
@@ -65,6 +67,7 @@ func (m *Model) openMusicSearch() tea.Cmd {
 	if m.musicSearch.state == musicSearchDownloading {
 		return nil
 	}
+	m.musicSearch.destDir = ""
 	m.resetMusicSearchInput(true)
 	return m.musicSearch.input.Focus()
 }
@@ -156,6 +159,9 @@ func (m *Model) startMusicDownload() tea.Cmd {
 	downloadID := m.musicSearch.downloadID
 	downloader := m.downloader
 	musicDir := m.rootDir
+	if m.musicSearch.destDir != "" {
+		musicDir = filepath.Join(m.rootDir, m.musicSearch.destDir)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.downloadCancel = cancel
 	return func() tea.Msg {

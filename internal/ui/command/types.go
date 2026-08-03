@@ -91,12 +91,13 @@ type Runtime interface {
 	OpenQueue()
 	ClearQueue() (int, error)
 	OpenLocalSearch(query string)
-	OpenOnlineSearch(query string, start bool) tea.Cmd
+	OpenOnlineSearch(query string, start bool, folder string) tea.Cmd
 	ReloadLua() tea.Cmd
 	ReloadLibrary() tea.Cmd
 	OpenHelp(topic string) error
 	OpenHistory(limit int)
 	OpenStats(scope, query string) error
+	OpenWho()
 	ClearHistory() error
 	Notify(message string)
 	Quit(force bool) (tea.Cmd, error)
@@ -120,4 +121,19 @@ type Command struct {
 	Flags       []FlagSpec
 	Complete    Completer
 	Execute     Handler
+}
+
+// ValueFlags returns the set of flag names (without dashes) that expect a
+// value, for commands that declare Flags with TakesValue set.
+func ValueFlags(c Command) map[string]bool {
+	var out map[string]bool
+	for _, f := range c.Flags {
+		if f.TakesValue {
+			if out == nil {
+				out = map[string]bool{}
+			}
+			out[f.Name] = true
+		}
+	}
+	return out
 }

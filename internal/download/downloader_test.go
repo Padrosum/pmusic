@@ -1,10 +1,37 @@
 package download
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"testing"
 )
+
+func TestDownloadCreatesMissingSubfolder(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "subfolder")
+	d := &Downloader{Binary: "definitely-not-a-real-binary-xyz"}
+	err := d.Download(t.Context(), sub, "https://example.com/watch?v=one")
+	if err != ErrYTDLP {
+		t.Fatalf("error = %v, want ErrYTDLP (before binary lookup the folder should exist)", err)
+	}
+	info, statErr := os.Stat(sub)
+	if statErr != nil || !info.IsDir() {
+		t.Fatalf("subfolder was not created: %v", statErr)
+	}
+}
+
+func TestDownloadRejectsNonDirectory(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "occupied")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d := &Downloader{Binary: "definitely-not-a-real-binary-xyz"}
+	if err := d.Download(t.Context(), file, "https://example.com/watch?v=one"); err != ErrInvalidDest {
+		t.Fatalf("error = %v, want ErrInvalidDest", err)
+	}
+}
 
 func TestBuildArgsUsesDirectProcessArguments(t *testing.T) {
 	dir := filepath.Join("tmp", "music with spaces")

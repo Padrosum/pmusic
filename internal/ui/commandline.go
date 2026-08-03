@@ -212,6 +212,13 @@ func (m *Model) executeCommandLine() tea.Cmd {
 		m.notifyMultiline((&command.UnknownCommandError{Name: p.Name, Suggestions: m.commandLine.registry.Suggest(p.Name, 3)}).Error())
 		return nil
 	}
+	// Re-parse with the resolved command's value-taking flags so `-f "value"`
+	// and `--folder "value"` bind the following token as the flag value.
+	if vf := command.ValueFlags(c); len(vf) > 0 {
+		if bound, berr := command.ParseCommand(raw, vf); berr == nil {
+			p = bound
+		}
+	}
 	cmd, err := c.Execute(m, p)
 	if err != nil {
 		m.notifyMultiline(err.Error())

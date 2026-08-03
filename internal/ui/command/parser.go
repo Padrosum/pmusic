@@ -11,6 +11,14 @@ type token struct {
 }
 
 func Parse(input string) (ParsedCommand, error) {
+	return ParseCommand(input, nil)
+}
+
+// ParseCommand parses input like Parse but additionally lets value-taking flags
+// consume a separate following token, so both `-f "value"` and `--folder
+// "value"` are supported in addition to `--flag=value`. valueFlags maps flag
+// names (without dashes) to whether the flag expects a value.
+func ParseCommand(input string, valueFlags map[string]bool) (ParsedCommand, error) {
 	raw := input
 	s := strings.TrimSpace(input)
 	if strings.HasPrefix(s, ":") {
@@ -30,27 +38,66 @@ func Parse(input string) (ParsedCommand, error) {
 		p.Bang = true
 	}
 	positional := false
-	for _, tok := range tokens[1:] {
-		v := tok.value
+	for i := 1; i < len(tokens); i++ {
+		v := tokens[i].value
 		if !positional && v == "--" {
 			positional = true
 			continue
 		}
-		if !positional && strings.HasPrefix(v, "--") && len(v) > 2 {
-			flag := strings.TrimPrefix(v, "--")
-			if name, value, ok := strings.Cut(flag, "="); ok {
-				if name == "" {
-					return ParsedCommand{}, &ParseError{Message: "flag name cannot be empty"}
+		if !positional {
+			if name, isFlag, hasEq, eqValue := splitFlag(v); isFlag {
+				if hasEq {
+					if name == "" {
+						return ParsedCommand{}, &ParseError{Message: "flag name cannot be empty"}
+					}
+					p.Flags[name] = eqValue
+					continue
 				}
-				p.Flags[name] = value
-			} else {
-				p.BoolFlags[flag] = true
+				if valueFlags != nil && valueFlags[name] {
+					if i+1 >= len(tokens) {
+						return ParsedCommand{}, &ParseError{Message: "flag -" + name + " requires a value"}
+					}
+					i++
+					p.Flags[name] = tokens[i].value
+					continue
+				}
+				p.BoolFlags[name] = true
+				continue
 			}
-			continue
 		}
 		p.Args = append(p.Args, v)
 	}
 	return p, nil
+}
+
+// splitFlag classifies a token as a long (--) or short (-x) flag and extracts
+// its name and optional `name=value` payload. Short flags are only recognized
+// for a single letter so negative numbers like -30 remain positional args.
+func splitFlag(v string) (name string, isFlag, hasEq bool, eqValue string) {
+	if strings.HasPrefix(v, "--") && len(v) > 2 {
+		body := strings.TrimPrefix(v, "--")
+		if n, val, ok := strings.Cut(body, "="); ok {
+			return n, true, true, val
+		}
+		return body, true, false, ""
+	}
+	if len(v) >= 2 && v[0] == '-' && v[1] != '-' {
+		body := strings.TrimPrefix(v, "-")
+		if body == "" {
+			return "", false, false, ""
+		}
+		if len(body) == 1 && isAlpha(body[0]) {
+			return body, true, false, ""
+		}
+		if n, val, ok := strings.Cut(body, "="); ok && len(n) == 1 && isAlpha(n[0]) {
+			return n, true, true, val
+		}
+	}
+	return "", false, false, ""
+}
+
+func isAlpha(r byte) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
 }
 
 func lex(s string) ([]token, error) {

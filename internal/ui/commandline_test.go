@@ -154,6 +154,21 @@ func TestCommandSearchDownloadHelpAndQuit(t *testing.T) {
 		t.Fatalf("download state=%v query=%q show=%v", m.musicSearch.state, m.musicSearch.query, m.showMusicSearch)
 	}
 	m.showMusicSearch = false
+	executeTestCommand(m, "download foo -f \"Classic Rock\"")
+	if !m.showMusicSearch || m.musicSearch.query != "foo" || m.musicSearch.destDir != "Classic Rock" || m.musicSearch.state != musicSearchLoading {
+		t.Fatalf("download -f: state=%v query=%q destDir=%q show=%v", m.musicSearch.state, m.musicSearch.query, m.musicSearch.destDir, m.showMusicSearch)
+	}
+	m.showMusicSearch = false
+	executeTestCommand(m, "download foo --folder \"Classic Rock\"")
+	if m.musicSearch.destDir != "Classic Rock" {
+		t.Fatalf("download --folder: destDir=%q", m.musicSearch.destDir)
+	}
+	m.showMusicSearch = false
+	executeTestCommand(m, "download foo -f \"../escape\"")
+	if m.showMusicSearch {
+		t.Fatalf("path traversal accepted: show=%v", m.showMusicSearch)
+	}
+	m.showMusicSearch = false
 	executeTestCommand(m, "help seek")
 	if !m.commandHelp.show || !strings.Contains(strings.Join(m.commandHelp.lines, "\n"), ":seek") {
 		t.Fatalf("help=%v", m.commandHelp.lines)

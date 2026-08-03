@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -23,13 +24,22 @@ func Commands() []command.Command {
 		{Name: "queue", Category: "Queue", Summary: "Open or clear the play queue", Description: "Show the existing session queue or remove all queued tracks.", Usage: ":queue [show|clear]", Examples: []string{":queue", ":queue clear"}, Subcommands: []command.Subcommand{{Name: "show", Description: "Open the queue overlay"}, {Name: "clear", Description: "Remove all queued tracks"}}, Execute: queue},
 		{Name: "search", Aliases: []string{"find"}, Category: "Library", Summary: "Search the local music library", Description: "Open the existing local library search and optionally prefill its query.", Usage: ":search [query]", Examples: []string{":search", `:search "Duman Seni Kendime Sakladım"`}, Execute: search},
 		{Name: "online", Aliases: []string{"yt"}, Category: "Library", Summary: "Search YouTube for music", Description: "Open the existing online music search. Text search uses YouTube in this version.", Usage: ":online [query]", Examples: []string{":online Metallica"}, Execute: online},
-		{Name: "download", Aliases: []string{"dl"}, Category: "Library", Summary: "Open the safe search/download flow", Description: "Search and let the user choose a result, or preview a direct URL before downloading.", Usage: ":download <query|url>", Examples: []string{`:download "Metallica Fade to Black"`, ":download https://youtube.com/watch?v=..."}, Execute: download},
+		{Name: "download", Aliases: []string{"dl"}, Category: "Library", Summary: "Open the safe search/download flow", Description: "Search and let the user choose a result, or preview a direct URL before downloading. Use -f to save the file into a subfolder of the music directory.", Usage: ":download <query|url> [-f <folder>]", Examples: []string{`:download "Metallica Fade to Black"`, `:download "Fade to Black" -f "Metallica"`, ":download https://youtube.com/watch?v=...", `:download https://youtube.com/watch?v=... -f "clips"`}, Flags: []command.FlagSpec{{Name: "f", Description: "Subfolder of the music directory to save into", TakesValue: true}, {Name: "folder", Description: "Subfolder of the music directory to save into", TakesValue: true}}, Execute: download},
 		{Name: "reload", Aliases: []string{"source"}, Category: "Application", Summary: "Reload configuration or library", Description: "Reload Lua configuration, or rescan the local music directory in the background.", Usage: ":reload [lua|library]", Examples: []string{":reload", ":reload library"}, Subcommands: []command.Subcommand{{Name: "lua", Description: "Hot-reload Lua configuration"}, {Name: "library", Description: "Rescan the music directory"}}, Execute: reload},
 		{Name: "quit", Aliases: []string{"q"}, Category: "Application", Summary: "Quit pmusic", Description: "Exit through pmusic's normal cleanup path. Add ! to force-cancel active work.", Usage: ":quit[!]", Examples: []string{":quit", ":q!"}, Execute: quit},
 		{Name: "help", Aliases: []string{"h"}, Category: "Application", Summary: "Browse command help", Description: "Open searchable, scrollable help generated from the command registry.", Usage: ":help [commands|keys|command]", Examples: []string{":help", ":help seek"}, Execute: help},
 		{Name: "history", Aliases: []string{"hist"}, Category: "Application", Summary: "View or clear command history", Description: "Open recent command history, limit it to N entries, or clear persistent history.", Usage: ":history [N|clear]", Examples: []string{":history", ":history 20", ":history clear"}, Subcommands: []command.Subcommand{{Name: "clear", Description: "Clear session and persistent command history"}}, Execute: history},
 		{Name: "stats", Aliases: []string{"statistics"}, Category: "Application", Summary: "Show listening activity", Description: "Inspect plays, skips, completions, listening time, and top tracks for today, this week, all time, or an artist.", Usage: ":stats [today|week|all|artist <name>]", Examples: []string{":stats", ":stats week", ":stats artist Metallica"}, Subcommands: []command.Subcommand{{Name: "today", Description: "Today's listening activity"}, {Name: "week", Description: "The last seven days"}, {Name: "all", Description: "All recorded activity"}, {Name: "artist", Description: "Activity for a matching artist"}}, Execute: stats},
+		{Name: "who", Aliases: []string{"profile"}, Category: "Application", Summary: "Show the creator's profile", Description: "Display an overview of the pmusic creator: identity, interests, links, and projects.", Usage: ":who", Examples: []string{":who"}, Execute: who},
 	}
+}
+
+func who(rt command.Runtime, p command.ParsedCommand) (tea.Cmd, error) {
+	if err := requireAtMost(p, 0); err != nil {
+		return nil, err
+	}
+	rt.OpenWho()
+	return nil, nil
 }
 
 func playback(name string, aliases []string, summary, usage string, h command.Handler, c command.Completer, examples []string) command.Command {
@@ -253,14 +263,33 @@ func search(rt command.Runtime, p command.ParsedCommand) (tea.Cmd, error) {
 }
 func online(rt command.Runtime, p command.ParsedCommand) (tea.Cmd, error) {
 	q := joined(p)
-	return rt.OpenOnlineSearch(q, q != ""), nil
+	return rt.OpenOnlineSearch(q, q != "", ""), nil
 }
 func download(rt command.Runtime, p command.ParsedCommand) (tea.Cmd, error) {
+	folder := p.Flags["folder"]
+	if folder == "" {
+		folder = p.Flags["f"]
+	}
 	q := joined(p)
 	if q == "" {
-		return nil, &command.MissingArgumentError{Message: "Missing download query or URL.", Usage: ":download <query|url>"}
+		return nil, &command.MissingArgumentError{Message: "Missing download query or URL.", Usage: ":download <query|url> [-f <folder>]"}
 	}
-	return rt.OpenOnlineSearch(q, true), nil
+	if folder != "" {
+		if err := validateDownloadFolder(folder); err != nil {
+			return nil, err
+		}
+	}
+	return rt.OpenOnlineSearch(q, true, folder), nil
+}
+func validateDownloadFolder(f string) error {
+	cleaned := filepath.Clean(f)
+	if cleaned == "." || cleaned == "" {
+		return nil
+	}
+	if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return &command.InvalidArgumentError{Message: "Folder must be a subfolder of the music directory: " + f, Usage: ":download <query|url> [-f <folder>]"}
+	}
+	return nil
 }
 func reload(rt command.Runtime, p command.ParsedCommand) (tea.Cmd, error) {
 	target := "lua"

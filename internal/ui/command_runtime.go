@@ -178,10 +178,11 @@ func (m *Model) OpenLocalSearch(query string) {
 	m.focused = panelTracks
 	m.searchInput.Focus()
 }
-func (m *Model) OpenOnlineSearch(query string, start bool) tea.Cmd {
+func (m *Model) OpenOnlineSearch(query string, start bool, folder string) tea.Cmd {
 	focus := m.openMusicSearch()
 	m.musicSearch.input.SetValue(query)
 	m.musicSearch.input.CursorEnd()
+	m.musicSearch.destDir = folder
 	if start {
 		return m.startMusicSearch()
 	}
@@ -200,6 +201,39 @@ func (m *Model) ReloadLibrary() tea.Cmd {
 }
 func (m *Model) OpenHelp(topic string) error { return m.openRegistryHelp(topic) }
 func (m *Model) OpenHistory(limit int)       { m.openHistoryHelp(limit) }
+func (m *Model) OpenWho() {
+	lines := []string{
+		"::Alihan Padros Karakuş",
+		"",
+		"  Nickname      Padrosum",
+		"  Yaş           21",
+		"  Roller        Yazılım Geliştirici · FOSS Katılımcısı",
+		"  İlgi          Felsefe · İlahiyat · Bilgisayar · Mitoloji",
+		"  Felsefe       Aristotelesçi Panteizm",
+		"  OS            Arch Linux",
+		"  Araçlar       Neovim · Go · Python · C · Lua",
+		"",
+		"  Site          https://padrosum.uk",
+		"  GitHub        https://github.com/Padrosum",
+		"  X             @padrosum",
+		"  E-posta       alihan@padrosum.uk",
+		"",
+		"  Projeler",
+		"    pmusic          Go ile yazılmış TUI müzik çalar",
+		"    ppd             Padros Packet Downloader",
+		"    FlappyPadros    Terminalde Flappy Bird",
+		"    pfetch          Lua ile yazılmış minimal fetch aracı",
+		"    TorforTerminal  Tor tabanlı gizlilik odaklı terminal tarayıcı",
+		"    links           Faydalı linkler",
+		"",
+		"  j/k:scroll  PgUp/PgDn  g/G  Esc/q:close",
+	}
+	m.commandHelp.show = true
+	m.commandHelp.topic = ""
+	m.commandHelp.lines = lines
+	m.commandHelp.offset = 0
+	m.commandHelp.historyLines = lines
+}
 func (m *Model) OpenStats(scope, query string) error {
 	if m.listening == nil {
 		return &command.RuntimeCommandError{Message: "Listening statistics are unavailable."}

@@ -41,6 +41,61 @@ func TestParseFlagsEscapesAndSeparator(t *testing.T) {
 	}
 }
 
+func TestParseCommandValueFlags(t *testing.T) {
+	valueFlags := map[string]bool{"f": true, "folder": true}
+	tests := []struct {
+		input  string
+		args   []string
+		flags  map[string]string
+		bools  map[string]bool
+		hasErr bool
+	}{
+		{`:download "Fade to Black" -f "Metallica"`, []string{"Fade to Black"}, map[string]string{"f": "Metallica"}, nil, false},
+		{`:download "Fade to Black" --folder "Classic Rock"`, []string{"Fade to Black"}, map[string]string{"folder": "Classic Rock"}, nil, false},
+		{`:download "Fade to Black" -f=Metallica`, []string{"Fade to Black"}, map[string]string{"f": "Metallica"}, nil, false},
+		{`:download "Fade to Black" --folder=Rock`, []string{"Fade to Black"}, map[string]string{"folder": "Rock"}, nil, false},
+		{`:download "Fade to Black" --folder "A B" --verbose`, []string{"Fade to Black"}, map[string]string{"folder": "A B"}, map[string]bool{"verbose": true}, false},
+		{`:download "Fade to Black" -f`, nil, nil, nil, true},
+		{`:download "Fade to Black" --folder "A B" -- "literal -f arg"`, []string{"Fade to Black", "literal -f arg"}, map[string]string{"folder": "A B"}, nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			p, err := ParseCommand(tt.input, valueFlags)
+			if (err != nil) != tt.hasErr {
+				t.Fatalf("error = %v, hasErr = %v", err, tt.hasErr)
+			}
+			if err != nil {
+				return
+			}
+			if !reflect.DeepEqual(p.Args, tt.args) {
+				t.Fatalf("args = %q, want %q", p.Args, tt.args)
+			}
+			for k, v := range tt.flags {
+				if p.Flags[k] != v {
+					t.Fatalf("Flags[%q] = %q, want %q (all flags %v)", k, p.Flags[k], v, p.Flags)
+				}
+			}
+			for k, v := range tt.bools {
+				if p.BoolFlags[k] != v {
+					t.Fatalf("BoolFlags[%q] = %v, want %v", k, p.BoolFlags[k], v)
+				}
+			}
+		})
+	}
+}
+
+func TestParseNegativeNumbersRemainArgs(t *testing.T) {
+	for in, want := range map[string]string{":seek -30": "-30", ":volume -10": "-10"} {
+		p, err := Parse(in)
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", in, err)
+		}
+		if len(p.Args) != 1 || p.Args[0] != want {
+			t.Fatalf("Parse(%q) args = %v, want [%q]", in, p.Args, want)
+		}
+	}
+}
+
 func TestParseEmpty(t *testing.T) {
 	for _, s := range []string{"", ":", "  :  "} {
 		p, err := Parse(s)

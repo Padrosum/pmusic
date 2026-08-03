@@ -44,6 +44,9 @@ func BuildArgs(musicDir, rawURL string) ([]string, error) {
 }
 
 func (d *Downloader) Download(ctx context.Context, musicDir, rawURL string) error {
+	if err := os.MkdirAll(musicDir, 0o755); err != nil {
+		return ErrInvalidDest
+	}
 	info, err := os.Stat(musicDir)
 	if err != nil || !info.IsDir() {
 		return ErrInvalidDest

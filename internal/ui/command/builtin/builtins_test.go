@@ -16,6 +16,8 @@ type mockRuntime struct {
 	loaded         bool
 	loop           bool
 	notices        []string
+	onlineFolder   string
+	onlineQueries  []string
 }
 
 func (*mockRuntime) Play(string) (tea.Cmd, error) { return nil, nil }
@@ -48,21 +50,26 @@ func (m *mockRuntime) Mute(mode string) error {
 func (m *mockRuntime) Position() (time.Duration, time.Duration, bool) {
 	return m.elapsed, m.total, m.loaded
 }
-func (m *mockRuntime) SeekAbsolute(v time.Duration) error  { m.elapsed = v; return nil }
-func (m *mockRuntime) Loop() bool                          { return m.loop }
-func (m *mockRuntime) SetLoop(v bool) error                { m.loop = v; return nil }
-func (*mockRuntime) OpenQueue()                            {}
-func (*mockRuntime) ClearQueue() (int, error)              { return 0, nil }
-func (*mockRuntime) OpenLocalSearch(string)                {}
-func (*mockRuntime) OpenOnlineSearch(string, bool) tea.Cmd { return nil }
-func (*mockRuntime) ReloadLua() tea.Cmd                    { return nil }
-func (*mockRuntime) ReloadLibrary() tea.Cmd                { return nil }
-func (*mockRuntime) OpenHelp(string) error                 { return nil }
-func (*mockRuntime) OpenHistory(int)                       {}
-func (*mockRuntime) OpenStats(string, string) error        { return nil }
-func (*mockRuntime) ClearHistory() error                   { return nil }
-func (m *mockRuntime) Notify(v string)                     { m.notices = append(m.notices, v) }
-func (*mockRuntime) Quit(bool) (tea.Cmd, error)            { return nil, nil }
+func (m *mockRuntime) SeekAbsolute(v time.Duration) error { m.elapsed = v; return nil }
+func (m *mockRuntime) Loop() bool                         { return m.loop }
+func (m *mockRuntime) SetLoop(v bool) error               { m.loop = v; return nil }
+func (*mockRuntime) OpenQueue()                           {}
+func (*mockRuntime) ClearQueue() (int, error)             { return 0, nil }
+func (*mockRuntime) OpenLocalSearch(string)               {}
+func (m *mockRuntime) OpenOnlineSearch(q string, start bool, folder string) tea.Cmd {
+	m.onlineFolder = folder
+	m.onlineQueries = append(m.onlineQueries, q)
+	return nil
+}
+func (*mockRuntime) ReloadLua() tea.Cmd             { return nil }
+func (*mockRuntime) ReloadLibrary() tea.Cmd         { return nil }
+func (*mockRuntime) OpenHelp(string) error          { return nil }
+func (*mockRuntime) OpenHistory(int)                {}
+func (*mockRuntime) OpenStats(string, string) error { return nil }
+func (*mockRuntime) OpenWho()                       {}
+func (*mockRuntime) ClearHistory() error            { return nil }
+func (m *mockRuntime) Notify(v string)              { m.notices = append(m.notices, v) }
+func (*mockRuntime) Quit(bool) (tea.Cmd, error)     { return nil, nil }
 func (*mockRuntime) TrackCompletions(string, int) []command.CompletionItem {
 	return []command.CompletionItem{
 		{Value: "Metallica — One", Display: "Metallica — One", Kind: command.CompletionArgument},
@@ -135,7 +142,7 @@ func TestBuiltinRegistryMetadataAndAliases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"pl", "pa", "t", "n", "previous", "p", "vol", "v", "sk", "repeat", "find", "yt", "dl", "source", "q", "h", "hist", "statistics"} {
+	for _, name := range []string{"pl", "pa", "t", "n", "previous", "p", "vol", "v", "sk", "repeat", "find", "yt", "dl", "source", "q", "h", "hist", "statistics", "profile"} {
 		if _, ok := r.Resolve(name); !ok {
 			t.Errorf("alias %s missing", name)
 		}
@@ -172,5 +179,41 @@ func TestBuiltinArgumentCompletions(t *testing.T) {
 		if !found {
 			t.Errorf("Complete(%q)=%v; want %q", tt.input, items, tt.want)
 		}
+	}
+}
+
+func TestDownloadHandlerFolderFlag(t *testing.T) {
+	r := &mockRuntime{}
+	for _, tt := range []struct {
+		name     string
+		p        command.ParsedCommand
+		wantErr  bool
+		wantQ    string
+		wantFold string
+	}{
+		{"plain query", command.ParsedCommand{Name: "download", Args: []string{"Metallica One"}}, false, "Metallica One", ""},
+		{"short flag", command.ParsedCommand{Name: "download", Args: []string{"Fade to Black"}, Flags: map[string]string{"f": "Metallica"}}, false, "Fade to Black", "Metallica"},
+		{"long flag", command.ParsedCommand{Name: "download", Args: []string{"Fade to Black"}, Flags: map[string]string{"folder": "Classic Rock"}}, false, "Fade to Black", "Classic Rock"},
+		{"missing query", command.ParsedCommand{Name: "download"}, true, "", ""},
+		{"path traversal", command.ParsedCommand{Name: "download", Args: []string{"song"}, Flags: map[string]string{"f": "../etc"}}, true, "", ""},
+		{"absolute path", command.ParsedCommand{Name: "download", Args: []string{"song"}, Flags: map[string]string{"f": "/home/user/Music"}}, true, "", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r.onlineFolder = ""
+			r.onlineQueries = nil
+			_, err := download(r, tt.p)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("error = %v, wantErr = %v", err, tt.wantErr)
+			}
+			if err != nil {
+				return
+			}
+			if tt.wantQ != "" && (len(r.onlineQueries) == 0 || r.onlineQueries[0] != tt.wantQ) {
+				t.Fatalf("queries = %v, want first %q", r.onlineQueries, tt.wantQ)
+			}
+			if r.onlineFolder != tt.wantFold {
+				t.Fatalf("folder = %q, want %q", r.onlineFolder, tt.wantFold)
+			}
+		})
 	}
 }
