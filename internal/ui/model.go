@@ -15,6 +15,7 @@ import (
 	pmcfg "github.com/Padrosum/pmusic/internal/config"
 	pmdownload "github.com/Padrosum/pmusic/internal/download"
 	pfs "github.com/Padrosum/pmusic/internal/fs"
+	"github.com/Padrosum/pmusic/internal/inhibit"
 	"github.com/Padrosum/pmusic/internal/listening"
 	luaeng "github.com/Padrosum/pmusic/internal/lua"
 	"github.com/Padrosum/pmusic/internal/meta"
@@ -100,6 +101,7 @@ type Model struct {
 	trackIdx  int
 
 	player     *player.Player
+	inhibitor  *inhibit.Inhibitor
 	nowPlaying *pfs.Track
 	nowFolder  int
 	nowTrack   int
@@ -256,6 +258,13 @@ func New(rootDir string) (*Model, error) {
 	}
 	m.luaEngine = eng
 	applyTheme(eng.Theme())
+
+	inh, inhErr := inhibit.New()
+	if inhErr != nil {
+		m.notification = "screen inhibit: " + inhErr.Error()
+		m.notifyUntil = time.Now().Add(10 * time.Second)
+	}
+	m.inhibitor = inh
 
 	return m, nil
 }
@@ -456,10 +465,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch st {
 			case player.Playing:
 				stateStr = "playing"
+				if m.inhibitor != nil {
+					_ = m.inhibitor.Inhibit()
+				}
 			case player.Paused:
 				stateStr = "paused"
+				if m.inhibitor != nil {
+					_ = m.inhibitor.UnInhibit()
+				}
 			default:
 				stateStr = "stopped"
+				if m.inhibitor != nil {
+					_ = m.inhibitor.UnInhibit()
+				}
 			}
 			m.luaEngine.CallOnStateChange(stateStr)
 		}
@@ -713,6 +731,9 @@ func (m *Model) Close() error {
 		}
 		if m.luaEngine != nil {
 			m.luaEngine.Close()
+		}
+		if m.inhibitor != nil {
+			closeErrors = append(closeErrors, m.inhibitor.Close())
 		}
 		m.closeErr = errors.Join(closeErrors...)
 	})
