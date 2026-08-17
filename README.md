@@ -1,8 +1,11 @@
+
 # pmusic
 
 pmusic is a fast, keyboard-driven TUI music player for Linux.
 
 ```text
+
+
  ♪ PMUSIC   LIBRARY  4 folders · 38 tracks                 ▂▅█▃ LIVE
 ┏━━━━━━━━━━━━━━━━━━━━━━━━┓┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃  COLLECTIONS  04      ┃┃  TRACKS  Jazz                /\_/\  ┃
