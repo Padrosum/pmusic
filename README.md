@@ -1,8 +1,17 @@
 
 # pmusic
 
-pmusic is a fast, keyboard-driven TUI music player for Linux.
 
+A fast, keyboard-driven music player for the terminal.
+
+▶ Search  
+▶ Queue  
+▶ YouTube support  
+▶ Downloads  
+▶ Themes  
+▶ Plugins  
+▶ Lua scripting  
+▶ Statistics  
 ```text
 
 
