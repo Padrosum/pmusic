@@ -1,6 +1,6 @@
 # pmusic
 
-A terminal-based (TUI) local music player written in Go.
+pmusic is a fast, keyboard-driven TUI music player for Linux.
 
 ```text
  ♪ PMUSIC   LIBRARY  4 folders · 38 tracks                 ▂▅█▃ LIVE
