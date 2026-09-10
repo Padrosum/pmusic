@@ -1,5 +1,23 @@
 # pmusic Haberler ve Değişiklik Notları
 
+## 2026-09-10 — GenLang katalog overlay (playlist / etiket / tür)
+
+- İsteğe bağlı `library.gl` overlay eklendi. Dosya yoksa TUI ve yerel çalma
+  davranışı aynı kalır.
+- Overlay `~/.config/pmusic/library.gl` veya müzik dizinindeki `library.gl`
+  dosyasından okunur (config kazanır). Dönüştürme, yt-dlp ile aynı modelde
+  `genlang convert <file> --json` alt süreciyle yapılır; CGO yoktur.
+- GenLang kümeleri (`kume`) sol panelde klasörlerin altında listeler olarak
+  görünür. `j`/`k` klasör ve listeler arasında gezer, `a` listeyi kuyruğa
+  alır.
+- Yeni komutlar: `:playlist` (`:tag`, `:lists`), `:type` (`:tur`),
+  `:inspect` (`:dyaz`). `:reload library` hem taramayı hem katalogu yeniler.
+- Tür soyacı ve küme üyeliği ayrı tutulur. Albüm üyeliği, o albüme referans
+  veren parçalara açılır. Eşleşmeyen `yol` değerleri listede "unmatched"
+  olarak raporlanır.
+- Örnek dosya `examples/library.gl`. `genlang` yoksa ve overlay varsa
+  status bar bunu söyler; player çalışmaya devam eder.
+
 ## 2026-08-03 — Albüm kapağı (cover art) görüntüleme
 
 - Yeni `:art` (alias `:cover`) komutu ve `c` kısayolu ile çalan parçanın

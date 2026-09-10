@@ -1,0 +1,55 @@
+# Optional GenLang catalog for pmusic.
+# Copy to ~/.config/pmusic/library.gl (or next to your music folder) and
+# set `yol` to real files. Requires `genlang` on PATH:
+#   https://github.com/Padrosum/GenLANG
+#
+# Types say what something *is*. Sets are playlists and tags. A Parca is
+# not on a playlist until `uye` says so.
+
+cins Medya {
+    baslik = ""
+}
+
+cins Ses -> Medya
+tur Album -> Ses
+tur Parca -> Ses {
+    sure_sn = 0
+}
+
+kume Favoriler
+kume Gece
+kume Enstruman
+
+veri gece_yuruyusu : Album {
+    baslik = "Gece Yürüyüşü"
+    sanatci = "Padros"
+    yil = 2026
+}
+
+veri parca_01 : Parca {
+    baslik = "İlk Işık"
+    sure_sn = 214
+    album = @gece_yuruyusu
+    yol = "Gece/ilk-isik.flac"
+}
+
+veri parca_02 : Parca {
+    baslik = "Yağmur"
+    sure_sn = 187
+    album = @gece_yuruyusu
+    yol = "Gece/yagmur.flac"
+}
+
+veri parca_03 : Parca {
+    baslik = "Sessizlik"
+    sure_sn = 96
+    album = @gece_yuruyusu
+    yol = "Gece/sessizlik.mp3"
+}
+
+uye parca_01 -> Favoriler
+uye parca_01 -> Gece
+uye parca_02 -> Gece
+uye parca_03 -> Enstruman
+uye parca_03 -> Gece
+uye gece_yuruyusu -> Favoriler

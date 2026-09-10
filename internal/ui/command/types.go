@@ -103,6 +103,13 @@ type Runtime interface {
 	Notify(message string)
 	Quit(force bool) (tea.Cmd, error)
 	TrackCompletions(query string, limit int) []CompletionItem
+	OpenPlaylist(name string) error
+	QueuePlaylist(name string) (int, error)
+	ListPlaylists() error
+	OpenType(name string) error
+	InspectSelection() error
+	PlaylistCompletions(query string, limit int) []CompletionItem
+	TypeCompletions(query string, limit int) []CompletionItem
 }
 
 type Handler func(Runtime, ParsedCommand) (tea.Cmd, error)

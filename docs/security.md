@@ -28,6 +28,15 @@ Extensions live under the user configuration directory, normally
 file's SHA-256 digest and source URL with the release manifest, then inspect the
 Lua source before enabling it from the store screen.
 
+## Optional GenLang catalog
+
+`library.gl` is data, not code: GenLang documents cannot run commands or open
+the network. pmusic loads them by running `genlang convert <absolute .gl>
+--json` with a timeout and a JSON size cap, the same pattern used for
+`yt-dlp`. The path is chosen by pmusic from the config or music directory; it
+is not taken from command arguments. If `genlang` is missing, the overlay is
+skipped and local playback continues.
+
 ## Reporting vulnerabilities
 
 Do not publish exploit details in a public issue before maintainers have had a

@@ -15,6 +15,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+var _ command.Runtime = (*Model)(nil)
+
 type trackSearchInfo struct {
 	display string
 	search  string
@@ -33,7 +35,7 @@ func (m *Model) trackSearchInfo(t pfs.Track) trackSearchInfo {
 	if md.Artist != "" {
 		display = md.Artist + " — " + display
 	}
-	info := trackSearchInfo{display: display, search: strings.ToLower(strings.Join([]string{t.Name, md.Title, md.Artist, display}, " ")), meta: md}
+	info := trackSearchInfo{display: display, search: strings.ToLower(strings.Join([]string{t.Name, md.Title, md.Artist, display, m.catalog.SearchText(t.Path)}, " ")), meta: md}
 	if m.trackSearchCache == nil {
 		m.trackSearchCache = make(map[string]trackSearchInfo)
 	}
@@ -83,7 +85,8 @@ func (m *Model) Play(query string) (tea.Cmd, error) {
 		return nil, &command.AmbiguousMatchError{Query: query, Count: len(matches)}
 	}
 	x := matches[0]
-	m.folderIdx, m.trackIdx, m.focused = x.fi, x.ti, panelTracks
+	m.selectLeft(x.fi)
+	m.trackIdx, m.focused = x.ti, panelTracks
 	return m.playSelected(), nil
 }
 func (m *Model) Pause() error {
@@ -196,7 +199,9 @@ func (m *Model) ReloadLibrary() tea.Cmd {
 		if err != nil {
 			return libraryReloadedMsg{err: err}
 		}
-		return libraryReloadedMsg{root: root, folders: pfs.FlatFolders(root)}
+		folders := pfs.FlatFolders(root)
+		overlay, catalogErr := m.loadCatalog(folders)
+		return libraryReloadedMsg{root: root, folders: folders, overlay: overlay, catalogErr: catalogErr}
 	}
 }
 func (m *Model) OpenHelp(topic string) error { return m.openRegistryHelp(topic) }

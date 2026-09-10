@@ -22,10 +22,13 @@ func Commands() []command.Command {
 		{Name: "volume", Aliases: []string{"vol", "v"}, Category: "Audio", Summary: "Inspect or change volume", Description: "Show, set, adjust, mute, or restore playback volume.", Usage: ":volume [0-100|+N|-N|mute|unmute|toggle]", Examples: []string{":volume", ":volume 60", ":volume +10", ":volume mute"}, Complete: static("25", "50", "75", "100", "mute", "unmute", "toggle"), Execute: volume},
 		{Name: "loop", Aliases: []string{"repeat"}, Category: "Audio", Summary: "Inspect or change looping", Description: "Show or change the repeat-current-track state used by the r shortcut.", Usage: ":loop [on|off|toggle]", Examples: []string{":loop", ":loop toggle"}, Complete: static("on", "off", "toggle"), Execute: loop},
 		{Name: "queue", Category: "Queue", Summary: "Open or clear the play queue", Description: "Show the existing session queue or remove all queued tracks.", Usage: ":queue [show|clear]", Examples: []string{":queue", ":queue clear"}, Subcommands: []command.Subcommand{{Name: "show", Description: "Open the queue overlay"}, {Name: "clear", Description: "Remove all queued tracks"}}, Execute: queue},
-		{Name: "search", Aliases: []string{"find"}, Category: "Library", Summary: "Search the local music library", Description: "Open the existing local library search and optionally prefill its query.", Usage: ":search [query]", Examples: []string{":search", `:search "Duman Seni Kendime Sakladım"`}, Execute: search},
+		{Name: "search", Aliases: []string{"find"}, Category: "Library", Summary: "Search the local music library", Description: "Open the existing local library search and optionally prefill its query. Catalog titles, types, and sets from library.gl are included when a GenLang overlay is loaded.", Usage: ":search [query]", Examples: []string{":search", `:search "Duman Seni Kendime Sakladım"`}, Execute: search},
+		{Name: "playlist", Aliases: []string{"tag", "lists"}, Category: "Library", Summary: "Open or queue a GenLang playlist", Description: "List sets from library.gl, show one in the tracks panel, or append its resolved tracks to the queue. Types stay types; sets are playlists and tags. Requires genlang on PATH when library.gl is present.", Usage: ":playlist [list|show|queue] [name]", Examples: []string{":playlist", ":playlist Gece", ":playlist queue Favoriler"}, Related: []string{"queue", "type", "inspect"}, Subcommands: []command.Subcommand{{Name: "list", Description: "Show every set in the catalog"}, {Name: "show", Description: "Open a set in the tracks panel"}, {Name: "queue", Description: "Append a set's tracks to the queue"}}, Complete: playlistComplete, Execute: playlist},
+		{Name: "type", Aliases: []string{"tur"}, Category: "Library", Summary: "Browse tracks by GenLang type", Description: "List the type hierarchy from library.gl, or show local tracks whose type is the named node or one of its descendants.", Usage: ":type [name]", Examples: []string{":type", ":type Parca", ":type Ses"}, Related: []string{"playlist", "inspect"}, Complete: typeComplete, Execute: typeCmd},
+		{Name: "inspect", Aliases: []string{"dyaz"}, Category: "Library", Summary: "Show catalog types and sets for a track", Description: "Print the GenLang type ancestry and set membership of the selected (or playing) track as two separate lists. Tracks without a catalog entry are reported as such.", Usage: ":inspect", Examples: []string{":inspect"}, Related: []string{"playlist", "type"}, Execute: inspect},
 		{Name: "online", Aliases: []string{"yt"}, Category: "Library", Summary: "Search YouTube for music", Description: "Open the existing online music search. Text search uses YouTube in this version.", Usage: ":online [query]", Examples: []string{":online Metallica"}, Execute: online},
 		{Name: "download", Aliases: []string{"dl"}, Category: "Library", Summary: "Open the safe search/download flow", Description: "Search and let the user choose a result, or preview a direct URL before downloading. Use -f to save the file into a subfolder of the music directory.", Usage: ":download <query|url> [-f <folder>]", Examples: []string{`:download "Metallica Fade to Black"`, `:download "Fade to Black" -f "Metallica"`, ":download https://youtube.com/watch?v=...", `:download https://youtube.com/watch?v=... -f "clips"`}, Flags: []command.FlagSpec{{Name: "f", Description: "Subfolder of the music directory to save into", TakesValue: true}, {Name: "folder", Description: "Subfolder of the music directory to save into", TakesValue: true}}, Execute: download},
-		{Name: "reload", Aliases: []string{"source"}, Category: "Application", Summary: "Reload configuration or library", Description: "Reload Lua configuration, or rescan the local music directory in the background.", Usage: ":reload [lua|library]", Examples: []string{":reload", ":reload library"}, Subcommands: []command.Subcommand{{Name: "lua", Description: "Hot-reload Lua configuration"}, {Name: "library", Description: "Rescan the music directory"}}, Execute: reload},
+		{Name: "reload", Aliases: []string{"source"}, Category: "Application", Summary: "Reload configuration or library", Description: "Reload Lua configuration, or rescan the local music directory and reload library.gl in the background.", Usage: ":reload [lua|library]", Examples: []string{":reload", ":reload library"}, Subcommands: []command.Subcommand{{Name: "lua", Description: "Hot-reload Lua configuration"}, {Name: "library", Description: "Rescan the music directory and reload library.gl"}}, Execute: reload},
 		{Name: "quit", Aliases: []string{"q"}, Category: "Application", Summary: "Quit pmusic", Description: "Exit through pmusic's normal cleanup path. Add ! to force-cancel active work.", Usage: ":quit[!]", Examples: []string{":quit", ":q!"}, Execute: quit},
 		{Name: "help", Aliases: []string{"h"}, Category: "Application", Summary: "Browse command help", Description: "Open searchable, scrollable help generated from the command registry.", Usage: ":help [commands|keys|command]", Examples: []string{":help", ":help seek"}, Execute: help},
 		{Name: "history", Aliases: []string{"hist"}, Category: "Application", Summary: "View or clear command history", Description: "Open recent command history, limit it to N entries, or clear persistent history.", Usage: ":history [N|clear]", Examples: []string{":history", ":history 20", ":history clear"}, Subcommands: []command.Subcommand{{Name: "clear", Description: "Clear session and persistent command history"}}, Execute: history},
@@ -268,6 +271,55 @@ func queue(rt command.Runtime, p command.ParsedCommand) (tea.Cmd, error) {
 func search(rt command.Runtime, p command.ParsedCommand) (tea.Cmd, error) {
 	rt.OpenLocalSearch(joined(p))
 	return nil, nil
+}
+
+func playlistComplete(rt command.Runtime, q string) []command.CompletionItem {
+	return rt.PlaylistCompletions(q, 10)
+}
+
+func typeComplete(rt command.Runtime, q string) []command.CompletionItem {
+	return rt.TypeCompletions(q, 10)
+}
+
+func playlist(rt command.Runtime, p command.ParsedCommand) (tea.Cmd, error) {
+	if len(p.Args) == 0 {
+		return nil, rt.ListPlaylists()
+	}
+	sub := strings.ToLower(p.Args[0])
+	switch sub {
+	case "list":
+		if len(p.Args) > 1 {
+			return nil, &command.InvalidArgumentError{Message: "Too many arguments.", Usage: ":playlist list"}
+		}
+		return nil, rt.ListPlaylists()
+	case "queue":
+		name := strings.Join(p.Args[1:], " ")
+		if strings.TrimSpace(name) == "" {
+			return nil, &command.MissingArgumentError{Message: "Missing playlist name.", Usage: ":playlist queue <name>"}
+		}
+		n, err := rt.QueuePlaylist(name)
+		if err != nil {
+			return nil, err
+		}
+		rt.Notify(fmt.Sprintf("Queued %d tracks from %s.", n, name))
+		return nil, nil
+	case "show":
+		name := strings.Join(p.Args[1:], " ")
+		return nil, rt.OpenPlaylist(name)
+	default:
+		return nil, rt.OpenPlaylist(joined(p))
+	}
+}
+
+func typeCmd(rt command.Runtime, p command.ParsedCommand) (tea.Cmd, error) {
+	return nil, rt.OpenType(joined(p))
+}
+
+func inspect(rt command.Runtime, p command.ParsedCommand) (tea.Cmd, error) {
+	if err := requireAtMost(p, 0); err != nil {
+		return nil, err
+	}
+	return nil, rt.InspectSelection()
 }
 func online(rt command.Runtime, p command.ParsedCommand) (tea.Cmd, error) {
 	q := joined(p)

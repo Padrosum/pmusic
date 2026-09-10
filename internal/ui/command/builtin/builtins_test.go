@@ -10,14 +10,18 @@ import (
 )
 
 type mockRuntime struct {
-	volume         int
-	muted          bool
-	elapsed, total time.Duration
-	loaded         bool
-	loop           bool
-	notices        []string
-	onlineFolder   string
-	onlineQueries  []string
+	volume          int
+	muted           bool
+	elapsed, total  time.Duration
+	loaded          bool
+	loop            bool
+	notices         []string
+	onlineFolder    string
+	onlineQueries   []string
+	playlist        string
+	queuedPlaylist  string
+	listedPlaylists bool
+	openType        string
 }
 
 func (*mockRuntime) Play(string) (tea.Cmd, error) { return nil, nil }
@@ -76,6 +80,30 @@ func (*mockRuntime) TrackCompletions(string, int) []command.CompletionItem {
 		{Value: "Metallica — One", Display: "Metallica — One", Kind: command.CompletionArgument},
 		{Value: "Duman — Seni Kendime Sakladım", Display: "Duman — Seni Kendime Sakladım", Kind: command.CompletionArgument},
 	}
+}
+
+func (m *mockRuntime) OpenPlaylist(name string) error {
+	m.playlist = name
+	return nil
+}
+func (m *mockRuntime) QueuePlaylist(name string) (int, error) {
+	m.queuedPlaylist = name
+	return 3, nil
+}
+func (m *mockRuntime) ListPlaylists() error {
+	m.listedPlaylists = true
+	return nil
+}
+func (m *mockRuntime) OpenType(name string) error {
+	m.openType = name
+	return nil
+}
+func (*mockRuntime) InspectSelection() error { return nil }
+func (*mockRuntime) PlaylistCompletions(string, int) []command.CompletionItem {
+	return []command.CompletionItem{{Value: "Gece", Display: "Gece", Kind: command.CompletionArgument}, {Value: "Favoriler", Display: "Favoriler", Kind: command.CompletionArgument}}
+}
+func (*mockRuntime) TypeCompletions(string, int) []command.CompletionItem {
+	return []command.CompletionItem{{Value: "Parca", Display: "Parca", Kind: command.CompletionArgument}}
 }
 
 func TestParseSeek(t *testing.T) {
@@ -143,7 +171,7 @@ func TestBuiltinRegistryMetadataAndAliases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"pl", "pa", "t", "n", "previous", "p", "vol", "v", "sk", "repeat", "find", "yt", "dl", "source", "q", "h", "hist", "statistics", "profile", "cover"} {
+	for _, name := range []string{"pl", "pa", "t", "n", "previous", "p", "vol", "v", "sk", "repeat", "find", "yt", "dl", "source", "q", "h", "hist", "statistics", "profile", "cover", "tag", "lists", "tur", "dyaz"} {
 		if _, ok := r.Resolve(name); !ok {
 			t.Errorf("alias %s missing", name)
 		}
@@ -168,6 +196,7 @@ func TestBuiltinArgumentCompletions(t *testing.T) {
 		{"volume ", "mute"}, {"loop ", "toggle"}, {"seek ", "50%"},
 		{"reload l", "library"}, {"queue c", "clear"},
 		{"stats w", "week"},
+		{"playlist G", "Gece"}, {"type P", "Parca"},
 		{"play Met", "Metallica — One"}, {"play Duman", "Duman — Seni Kendime Sakladım"},
 	} {
 		items, _ := r.Complete(rt, tt.input, len([]rune(tt.input)), 10)
@@ -216,5 +245,30 @@ func TestDownloadHandlerFolderFlag(t *testing.T) {
 				t.Fatalf("folder = %q, want %q", r.onlineFolder, tt.wantFold)
 			}
 		})
+	}
+}
+
+func TestPlaylistHandler(t *testing.T) {
+	r := &mockRuntime{}
+	if _, err := playlist(r, command.ParsedCommand{}); err != nil {
+		t.Fatal(err)
+	}
+	if !r.listedPlaylists {
+		t.Fatal("expected list")
+	}
+	if _, err := playlist(r, command.ParsedCommand{Args: []string{"Gece"}}); err != nil {
+		t.Fatal(err)
+	}
+	if r.playlist != "Gece" {
+		t.Fatalf("opened %q", r.playlist)
+	}
+	if _, err := playlist(r, command.ParsedCommand{Args: []string{"queue", "Favoriler"}}); err != nil {
+		t.Fatal(err)
+	}
+	if r.queuedPlaylist != "Favoriler" || len(r.notices) == 0 {
+		t.Fatalf("queue %q notices=%v", r.queuedPlaylist, r.notices)
+	}
+	if _, err := playlist(r, command.ParsedCommand{Args: []string{"queue"}}); err == nil {
+		t.Fatal("missing queue name accepted")
 	}
 }

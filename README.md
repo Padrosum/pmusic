@@ -47,6 +47,7 @@ A fast, keyboard-driven music player for the terminal.
 - **Persistent configuration** — music directory is saved to `~/.config/pmusic/config.json`
 - **Persistent play queue** — queue tracks or whole folders, reorder them, and continue across restarts
 - **Local library search** — find tracks without leaving the player
+- **GenLang catalog** — optional `library.gl` overlay for playlists, tags, and type browse without moving files
 - **Listening statistics** — inspect listening time, starts, completions, skips, artists, and top tracks
 - **Vim-style command mode** — searchable help, completion, aliases, suggestions, and persistent history
 - **Lua scripting** — theme, keybindings, and event hooks configurable without recompiling
@@ -144,6 +145,16 @@ chafa --version
 
 Arch Linux: `sudo pacman -S chafa` · Debian/Ubuntu: `sudo apt-get install chafa`
 
+### Optional GenLang catalog
+
+Playlists and tags live in a `library.gl` overlay. Local playback does not
+need it. When the file exists, pmusic runs `genlang convert … --json`
+([GenLang](https://github.com/Padrosum/GenLANG)) to load it:
+
+```sh
+genlang --version
+```
+
 ## Usage
 
 ```sh
@@ -205,6 +216,10 @@ Examples:
 - `:loop toggle`
 - `:queue clear`
 - `:search Metallica`
+- `:playlist Gece`
+- `:playlist queue Favoriler`
+- `:type Parca`
+- `:inspect`
 - `:online Metallica`
 - `:download Duman Seni Kendime Sakladım`
 - `:art`
@@ -260,6 +275,64 @@ Press `Y` to open the music search screen. Enter a song or artist name to search
 Text search is YouTube-only in this version. Direct URLs may point to YouTube, SoundCloud, or any other source supported by yt-dlp; pMusic does not claim that those sites support text search.
 
 Requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) in `$PATH` (and its normal audio conversion dependencies). Downloads run in the background and are written to the configured local music folder. The filesystem watcher adds the resulting MP3 to the library, and pMusic plays it as a local file—it never streams the remote result.
+
+## Playlists and tags (GenLang)
+
+Folders stay folders. An optional [GenLang](https://github.com/Padrosum/GenLANG)
+`library.gl` file adds playlists and tags on top of the same files, without
+moving anything.
+
+pmusic looks for the overlay in this order:
+
+1. `~/.config/pmusic/library.gl`
+2. `<music-dir>/library.gl`
+
+If neither file exists, the player is unchanged. If a file exists, `genlang`
+must be on `PATH`; otherwise a status-bar notice explains that and local
+playback continues.
+
+Copy the commented sample and point `yol` at real files:
+
+```sh
+mkdir -p ~/.config/pmusic
+cp examples/library.gl ~/.config/pmusic/library.gl
+```
+
+In the file, **types** (`cins` / `tur`) say what a record *is* (`Parca`,
+`Album`). **Sets** (`kume` + `uye`) are playlists and tags. Being a `Parca`
+does not put a track on a playlist.
+
+```gl
+kume Favoriler
+kume Gece
+
+veri kind_of_blue : Parca {
+    baslik = "Kind of Blue"
+    yol = "Jazz/Kind of Blue.flac"
+}
+
+uye kind_of_blue -> Favoriler
+uye kind_of_blue -> Gece
+```
+
+`yol` may be absolute or relative to the music directory. If it is omitted,
+pmusic matches a unique local filename/title. A set member that is an album
+expands to the tracks that reference it.
+
+Loaded sets appear at the bottom of the left panel (prefixed with `♫`).
+`j` / `k` move through folders and lists together. `a` on a list queues every
+resolved member. `:reload library` rescans files and reloads `library.gl`.
+
+| Command | Effect |
+| --- | --- |
+| `:playlist` | List every set |
+| `:playlist Gece` | Open that set in the tracks panel |
+| `:playlist queue Favoriler` | Append its tracks to the queue |
+| `:type Parca` | Show tracks whose type is `Parca` or a descendant |
+| `:inspect` | Print the selected track's types and sets as two lists |
+
+`:tag` and `:lists` are aliases for `:playlist`. `:tur` aliases `:type`.
+`:dyaz` aliases `:inspect`.
 
 ## Cover Art
 
@@ -481,6 +554,7 @@ pmusic.register_keymap("d", "vol_down")  -- d → volume down
 - ALSA development headers and `pkg-config` for Linux source builds
 - `yt-dlp` and FFmpeg only for online search/download support
 - `chafa` only for cover art rendering
+- `genlang` only for the optional `library.gl` playlist/tag overlay
 
 ## Why pmusic?
 

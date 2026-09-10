@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Padrosum/pmusic/internal/blackjack"
+	"github.com/Padrosum/pmusic/internal/catalog"
 	pmcfg "github.com/Padrosum/pmusic/internal/config"
 	"github.com/Padrosum/pmusic/internal/cover"
 	pmdownload "github.com/Padrosum/pmusic/internal/download"
@@ -42,9 +43,11 @@ type tickMsg time.Time
 // luaReloadedMsg is sent back to the Update loop after a Lua hot-reload attempt.
 type luaReloadedMsg struct{ err error }
 type libraryReloadedMsg struct {
-	root    *pfs.Folder
-	folders []*pfs.Folder
-	err     error
+	root       *pfs.Folder
+	folders    []*pfs.Folder
+	overlay    *catalog.Overlay
+	catalogErr error
+	err        error
 }
 
 // coverReadyMsg carries the result of an asynchronous cover art resolve/render.
@@ -186,6 +189,15 @@ type Model struct {
 	coverLines   []string
 	coverInline  []string
 	coverCache   map[string]coverCacheEntry
+
+	catalog          *catalog.Overlay
+	catalogConverter catalog.Converter
+	catalogConfigDir string
+	viewingPlaylist  bool
+	viewingCatalog   bool
+	playlistIdx      int
+	catalogTitle     string
+	catalogTracks    []pfs.Track
 }
 
 type coverCacheEntry struct {
@@ -283,6 +295,13 @@ func New(rootDir string) (*Model, error) {
 	}
 	m.luaEngine = eng
 	applyTheme(eng.Theme())
+
+	if overlay, catalogErr := m.loadCatalog(folders); catalogErr != nil {
+		m.notification = catalogLoadMessage(catalogErr)
+		m.notifyUntil = time.Now().Add(10 * time.Second)
+	} else {
+		m.catalog = overlay
+	}
 
 	inh, inhErr := inhibit.New()
 	if inhErr != nil {
@@ -402,7 +421,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.searchResultsValid = false
 			m.folderIdx = min(m.folderIdx, max(0, len(m.folders)-1))
 			m.trackIdx = 0
-			m.notify(fmt.Sprintf("Library reloaded: %d folders", len(m.folders)))
+			m.applyCatalog(msg.overlay, msg.catalogErr)
+			if m.leftCursor() >= m.leftLen() {
+				m.selectLeft(max(0, m.leftLen()-1))
+			}
+			nLists := len(m.playlists())
+			if nLists > 0 {
+				m.notify(fmt.Sprintf("Library reloaded: %d folders · %d lists", len(m.folders), nLists))
+			} else {
+				m.notify(fmt.Sprintf("Library reloaded: %d folders", len(m.folders)))
+			}
 		}
 		return m, nil
 
@@ -823,22 +851,20 @@ func (m *Model) reloadLuaCmd() tea.Cmd {
 
 func (m *Model) moveUp() {
 	if m.focused == panelFolders {
-		if m.folderIdx > 0 {
-			m.folderIdx--
-			m.trackIdx = 0
+		cur := m.leftCursor()
+		if cur > 0 {
+			m.selectLeft(cur - 1)
 		}
-	} else {
-		if m.trackIdx > 0 {
-			m.trackIdx--
-		}
+	} else if m.trackIdx > 0 {
+		m.trackIdx--
 	}
 }
 
 func (m *Model) moveDown() {
 	if m.focused == panelFolders {
-		if m.folderIdx < len(m.folders)-1 {
-			m.folderIdx++
-			m.trackIdx = 0
+		cur := m.leftCursor()
+		if cur < m.leftLen()-1 {
+			m.selectLeft(cur + 1)
 		}
 	} else {
 		tracks := m.currentTracks()
@@ -849,26 +875,35 @@ func (m *Model) moveDown() {
 }
 
 func (m *Model) currentTracks() []pfs.Track {
+	query := strings.ToLower(m.searchInput.Value())
+	if query != "" {
+		if len(m.folders) == 0 {
+			return nil
+		}
+		if m.searchResultsValid && query == m.searchQuery {
+			return m.searchResults
+		}
+		var filtered []pfs.Track
+		for _, f := range m.folders {
+			for _, t := range f.Tracks {
+				if strings.Contains(m.trackSearchInfo(t).search, query) {
+					filtered = append(filtered, t)
+				}
+			}
+		}
+		m.searchQuery, m.searchResults, m.searchResultsValid = query, filtered, true
+		return m.searchResults
+	}
+	if m.viewingCatalog {
+		return m.catalogTracks
+	}
 	if len(m.folders) == 0 {
 		return nil
 	}
-	query := strings.ToLower(m.searchInput.Value())
-	if query == "" {
-		return m.folders[m.folderIdx].Tracks
+	if m.folderIdx < 0 || m.folderIdx >= len(m.folders) {
+		return nil
 	}
-	if m.searchResultsValid && query == m.searchQuery {
-		return m.searchResults
-	}
-	var filtered []pfs.Track
-	for _, f := range m.folders {
-		for _, t := range f.Tracks {
-			if strings.Contains(m.trackSearchInfo(t).search, query) {
-				filtered = append(filtered, t)
-			}
-		}
-	}
-	m.searchQuery, m.searchResults, m.searchResultsValid = query, filtered, true
-	return m.searchResults
+	return m.folders[m.folderIdx].Tracks
 }
 
 func (m *Model) playSelected() tea.Cmd {
@@ -977,6 +1012,9 @@ func (m *Model) saveQueue() {
 // enqueueSelected appends the cursor's track (or the whole highlighted folder)
 // to the play queue and shows a confirmation notification.
 func (m *Model) enqueueSelected() {
+	if m.enqueueCatalogOrFolder() {
+		return
+	}
 	if m.focused == panelFolders {
 		tracks := m.currentTracks()
 		if len(tracks) == 0 {
@@ -1034,6 +1072,12 @@ func (m *Model) rescan() {
 	if m.folderIdx >= len(m.folders) {
 		m.folderIdx = max(0, len(m.folders)-1)
 	}
+	if m.catalog != nil {
+		m.applyCatalog(m.catalog.Resolve(m.rootDir, m.folders), nil)
+	}
+	if m.leftCursor() >= m.leftLen() {
+		m.selectLeft(max(0, m.leftLen()-1))
+	}
 }
 
 // handleMouse processes mouse events: scroll to navigate, left click to select/play.
@@ -1073,11 +1117,10 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			m.focused = panelFolders
 			return m, nil
 		}
-		offset := scrollOffset(m.folderIdx, visibleRows)
+		offset := scrollOffset(m.leftCursor(), visibleRows)
 		idx := offset + itemRow
-		if idx >= 0 && idx < len(m.folders) {
-			m.folderIdx = idx
-			m.trackIdx = 0
+		if idx >= 0 && idx < m.leftLen() {
+			m.selectLeft(idx)
 			m.focused = panelFolders
 		}
 	} else {
@@ -1168,8 +1211,15 @@ func (m *Model) renderHeader(w int) string {
 	}
 
 	meta := styleHeaderMeta.Render(fmt.Sprintf("  LIBRARY  %d folders · %d tracks", len(m.folders), trackCount))
+	if n := len(m.playlists()); n > 0 {
+		meta = styleHeaderMeta.Render(fmt.Sprintf("  LIBRARY  %d folders · %d lists · %d tracks", len(m.folders), n, trackCount))
+	}
 	if w < 72 {
-		meta = styleHeaderMeta.Render(fmt.Sprintf("  %d folders · %d tracks", len(m.folders), trackCount))
+		if n := len(m.playlists()); n > 0 {
+			meta = styleHeaderMeta.Render(fmt.Sprintf("  %d folders · %d lists · %d tracks", len(m.folders), n, trackCount))
+		} else {
+			meta = styleHeaderMeta.Render(fmt.Sprintf("  %d folders · %d tracks", len(m.folders), trackCount))
+		}
 	}
 
 	right := ""
@@ -1207,19 +1257,30 @@ func (m *Model) renderFolders(w, h int) string {
 	innerH := h - 2
 
 	var sb strings.Builder
+	nLists := len(m.playlists())
 	title := styleTitle.Render("  COLLECTIONS") + styleHeaderMeta.Render(fmt.Sprintf("  %02d", len(m.folders)))
+	if nLists > 0 {
+		title = styleTitle.Render("  COLLECTIONS") + styleHeaderMeta.Render(fmt.Sprintf("  %02d · %d lists", len(m.folders), nLists))
+	}
 	sb.WriteString(title + "\n")
 
-	if len(m.folders) == 0 {
+	items := m.leftLen()
+	if items == 0 {
 		sb.WriteString(styleDim.Render("  no music found"))
 	} else {
-		offset := scrollOffset(m.folderIdx, innerH-1)
-		for i := offset; i < len(m.folders) && i < offset+innerH-1; i++ {
-			f := m.folders[i]
-			name := truncate(f.Name, innerW-4)
+		cursor := m.leftCursor()
+		offset := scrollOffset(cursor, innerH-1)
+		for i := offset; i < items && i < offset+innerH-1; i++ {
+			name, playlist := m.leftLabel(i, innerW-4)
 			prefix := "  "
-			if i == m.folderIdx {
+			if playlist {
+				prefix = "♫ "
+			}
+			if i == cursor {
 				line := "› " + name
+				if playlist {
+					line = "›♫ " + name
+				}
 				if m.focused == panelFolders {
 					sb.WriteString(styleSelected.Width(innerW).Render(line))
 				} else {
@@ -1238,6 +1299,17 @@ func (m *Model) renderFolders(w, h int) string {
 		border = stylePanelActive
 	}
 	return border.Width(w - 2).Height(h - 2).Render(content)
+}
+
+func (m *Model) leftLabel(i, width int) (string, bool) {
+	if i < len(m.folders) {
+		return truncate(m.folders[i].Name, width), false
+	}
+	pl, ok := m.playlistAt(i - len(m.folders))
+	if !ok {
+		return "", true
+	}
+	return truncate(pl.Name, width), true
 }
 
 // mascotLines returns the three display lines for the current mascot state.
@@ -1269,7 +1341,9 @@ func (m *Model) renderTracks(w, h int) string {
 
 	var sb strings.Builder
 	folderName := ""
-	if len(m.folders) > 0 {
+	if m.viewingCatalog && m.catalogTitle != "" {
+		folderName = m.catalogTitle
+	} else if len(m.folders) > 0 && m.folderIdx >= 0 && m.folderIdx < len(m.folders) {
 		folderName = m.folders[m.folderIdx].Name
 	}
 
@@ -1833,7 +1907,7 @@ func (m *Model) renderHelp() string {
 		{"Seek", "[  /  ]    ±5 seconds\n{  /  }    ±30 seconds"},
 		{"Volume", "+  /  =    volume up (10%)\n-          volume down (10%)"},
 		{"Music Search", "Y          search and download music\n/          new search inside the overlay"},
-		{"System", ":          open command mode\n?          toggle this help\nCtrl+R     reload Lua config\nq          quit"},
+		{"System", ":          open command mode\n:playlist  GenLang lists\n?          toggle this help\nCtrl+R     reload Lua config\nq          quit"},
 	}
 
 	var lines []string
