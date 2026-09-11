@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	pmstore "github.com/Padrosum/pmusic/internal/store"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -47,5 +48,39 @@ func TestHelpIncludesMusicSearchShortcut(t *testing.T) {
 	view := m.renderHelp()
 	if !strings.Contains(view, "Y          search and download music") {
 		t.Fatalf("music search shortcut missing from help")
+	}
+}
+
+func TestStoreRenderIncludesCatalogsTab(t *testing.T) {
+	m := &Model{
+		width:    80,
+		height:   24,
+		storeTab: 2,
+		storeItems: []storeEntry{{
+			Item:      pmstore.Item{Name: "library", Desc: "Sample GenLang catalog", Kind: "catalog"},
+			Installed: true,
+		}},
+	}
+	view := m.renderStore()
+	if !strings.Contains(view, "[Catalogs]") {
+		t.Fatalf("catalogs tab missing: %q", view)
+	}
+	if !strings.Contains(view, "library") {
+		t.Fatalf("catalog item missing: %q", view)
+	}
+}
+
+func TestStoreVisibleItemsByTab(t *testing.T) {
+	m := &Model{
+		storeItems: []storeEntry{
+			{Item: pmstore.Item{Name: "logger", Kind: "plugin"}},
+			{Item: pmstore.Item{Name: "gruvbox", Kind: "theme"}},
+			{Item: pmstore.Item{Name: "library", Kind: "catalog"}},
+		},
+	}
+	m.storeTab = 2
+	got := m.visibleStoreItems()
+	if len(got) != 1 || got[0].Name != "library" {
+		t.Fatalf("catalog tab = %+v", got)
 	}
 }

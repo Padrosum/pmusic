@@ -37,6 +37,13 @@ the network. pmusic loads them by running `genlang convert <absolute .gl>
 is not taken from command arguments. If `genlang` is missing, the overlay is
 skipped and local playback continues.
 
+`pmusic -s` also downloads catalog packages into `~/.config/pmusic/gl/` using
+the same commit pin, size limit, SHA-256 digest, and atomic write as Lua
+files. The active overlay remains `~/.config/pmusic/library.gl` (or the music
+directory copy). Sync updates the package under `gl/` every time and seeds
+`library.gl` only when that file is missing; an existing catalog is never
+overwritten.
+
 ## Reporting vulnerabilities
 
 Do not publish exploit details in a public issue before maintainers have had a

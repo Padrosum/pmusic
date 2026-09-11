@@ -1,5 +1,44 @@
 # pmusic Haberler ve Değişiklik Notları
 
+## 2026-09-11 — pmusic catalog: arşivden library.gl
+
+- `pmusic catalog` (alias `-c` / `--catalog`) yerel müzik dizinini tarar ve
+  `~/.config/pmusic/library.gl` yazar. Her dosya bir `Parca`, etiketlerden
+  albümler, dosya yolu alanı `path` (GenLang'de `yol` yasak).
+- Örnek katalog ve daha önce bu komutla üretilen dosya üzerine yazılır.
+  Elle düzenlenmiş bir katalog için `--force` gerekir.
+- Status bar, genlang parse hatalarının neden satırını da gösterir.
+
+## 2026-09-11 — library.gl: `yol` yerine `path`
+
+- GenLang'de `yol` rezerve kelime olduğu için örnek katalog
+  `yol = "..."` satırında parse hatası veriyordu. Dosya yolu alanı `path`.
+- Status bar artık genlang stderr'inin ikinci satırını da gösterir
+  (`expected property name` gibi).
+
+## 2026-09-11 — README: GenLang CLI kurulumu
+
+- README artık playlist/etiket overlay için `genlang` CLI'nin ayrı kurulması
+  gerektiğini söylüyor. Kurulum komutları Installation bölümünde;
+  `pmusic -s` yalnızca örnek `.gl` dosyasını indirir, GenLang kurmaz.
+
+## 2026-09-11 — pmusic -s ile GenLang katalog paketleri
+
+- `pmusic -s` Lua eklenti ve temalarının yanında GenLang `.gl` paketlerini de
+  indiriyor. Dosyalar `~/.config/pmusic/gl/` altına, aynı pin / SHA-256 /
+  boyut sınırı / atomik yazma kurallarıyla kurulur.
+- İlk paket örnek katalog: `examples/library.gl` (commit `ad78fcc`). Her
+  senkron `~/.config/pmusic/gl/library.gl` dosyasını günceller.
+- Kullanıcının `~/.config/pmusic/library.gl` dosyası yoksa örnek oraya
+  kopyalanır; varsa dokunulmaz.
+- Store overlay (`g`) üçüncü sekme: Catalogs. Space Lua enable/disable değil,
+  aktif overlay yolunu (`library.gl`) bildirir.
+
+## 2026-09-10 — README'ye son güncelleme özeti
+
+- README başına 2026-09-10 GenLang katalog güncellemesinin kısa özeti eklendi;
+  ayrıntılı kullanım mevcut GenLang bölümünde duruyor.
+
 ## 2026-09-10 — GenLang katalog overlay (playlist / etiket / tür)
 
 - İsteğe bağlı `library.gl` overlay eklendi. Dosya yoksa TUI ve yerel çalma

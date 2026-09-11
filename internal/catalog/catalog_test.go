@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -184,6 +185,53 @@ func TestConvertJSONWithGenLang(t *testing.T) {
 	}
 	if len(doc.Types) != 1 || doc.Types[0].Name != "T" {
 		t.Fatalf("doc = %#v", doc)
+	}
+}
+
+func TestGenlangErrorDetailIncludesReason(t *testing.T) {
+	got := genlangErrorDetail("/tmp/library.gl:33:5: parse error:\nexpected property name\n33 |     yol = \"x\"\n  |     ^\n")
+	want := "/tmp/library.gl:33:5: parse error: expected property name"
+	if got != want {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestConvertJSONReportsParseReason(t *testing.T) {
+	if _, err := exec.LookPath("genlang"); err != nil {
+		t.Skip("genlang not on PATH")
+	}
+	src := filepath.Join(t.TempDir(), FileName)
+	if err := os.WriteFile(src, []byte("cins T\nveri n : T {\n    yol = \"x\"\n}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := DefaultConverter().ConvertJSON(context.Background(), src)
+	if err == nil || !strings.Contains(err.Error(), "expected property name") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestExampleLibraryConverts(t *testing.T) {
+	if _, err := exec.LookPath("genlang"); err != nil {
+		t.Skip("genlang not on PATH")
+	}
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	src, err := filepath.Abs(filepath.Join(filepath.Dir(thisFile), "..", "..", "examples", "library.gl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := DefaultConverter().ConvertJSON(context.Background(), src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := ParseJSON(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Entities) < 3 {
+		t.Fatalf("entities = %d", len(doc.Entities))
 	}
 }
 

@@ -129,7 +129,7 @@ type Model struct {
 	showStore   bool
 	storeItems  []storeEntry
 	storeCursor int
-	storeTab    int // 0=plugins 1=themes
+	storeTab    int // 0=plugins 1=themes 2=catalogs
 
 	showMusicSearch bool
 	musicSearch     musicSearchModel
@@ -1619,39 +1619,57 @@ func min(a, b int) int {
 	return b
 }
 
-func luaConfigDir() (string, error) {
+func pmusicConfigDir() (string, error) {
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(base, "pmusic", "lua"), nil
+	return filepath.Join(base, "pmusic"), nil
+}
+
+func luaConfigDir() (string, error) {
+	base, err := pmusicConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "lua"), nil
 }
 
 func (m *Model) loadStoreItems() {
-	luaDir, _ := luaConfigDir()
+	cfgDir, _ := pmusicConfigDir()
+	luaDir := filepath.Join(cfgDir, "lua")
 	enabled, _ := pmcfg.LoadEnabled()
-	items := make([]storeEntry, 0, len(pmstore.Plugins)+len(pmstore.Themes))
-	for _, item := range append(append([]pmstore.Item{}, pmstore.Plugins...), pmstore.Themes...) {
-		subdir := "plugins"
-		if item.Kind == "theme" {
-			subdir = "themes"
-		}
-		p := filepath.Join(luaDir, subdir, item.Name+".lua")
+	all := append(append(append([]pmstore.Item{}, pmstore.Plugins...), pmstore.Themes...), pmstore.Catalogs...)
+	items := make([]storeEntry, 0, len(all))
+	for _, item := range all {
+		p := storeItemPath(cfgDir, luaDir, item)
 		_, err := os.Stat(p)
 		items = append(items, storeEntry{
 			Item:      item,
 			Installed: err == nil,
-			Enabled:   enabled.Has(item.Kind, item.Name),
+			Enabled:   item.Kind != "catalog" && enabled.Has(item.Kind, item.Name),
 		})
 	}
 	m.storeItems = items
+}
+
+func storeItemPath(cfgDir, luaDir string, item pmstore.Item) string {
+	switch item.Kind {
+	case "theme":
+		return filepath.Join(luaDir, "themes", item.Name+".lua")
+	case "catalog":
+		return filepath.Join(cfgDir, "gl", item.Name+".gl")
+	default:
+		return filepath.Join(luaDir, "plugins", item.Name+".lua")
+	}
 }
 
 func (m *Model) visibleStoreItems() []storeEntry {
 	var out []storeEntry
 	for _, item := range m.storeItems {
 		if (m.storeTab == 0 && item.Kind == "plugin") ||
-			(m.storeTab == 1 && item.Kind == "theme") {
+			(m.storeTab == 1 && item.Kind == "theme") ||
+			(m.storeTab == 2 && item.Kind == "catalog") {
 			out = append(out, item)
 		}
 	}
@@ -1666,6 +1684,11 @@ func (m *Model) toggleStoreItem() tea.Cmd {
 	item := visible[m.storeCursor]
 	if !item.Installed {
 		m.notification = item.Name + " not installed — run pmusic -s first"
+		m.notifyUntil = time.Now().Add(5 * time.Second)
+		return nil
+	}
+	if item.Kind == "catalog" {
+		m.notification = "catalog loaded from library.gl — edit ~/.config/pmusic/library.gl"
 		m.notifyUntil = time.Now().Add(5 * time.Second)
 		return nil
 	}
@@ -1694,10 +1717,14 @@ func (m *Model) handleStore(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.storeCursor--
 		}
 	case key.Matches(msg, keys.Left):
-		m.storeTab = 0
+		if m.storeTab == 0 {
+			m.storeTab = 2
+		} else {
+			m.storeTab--
+		}
 		m.storeCursor = 0
 	case key.Matches(msg, keys.Right):
-		m.storeTab = 1
+		m.storeTab = (m.storeTab + 1) % 3
 		m.storeCursor = 0
 	case key.Matches(msg, keys.Space), key.Matches(msg, keys.Enter):
 		return m, m.toggleStoreItem()
@@ -1710,14 +1737,18 @@ func (m *Model) renderStore() string {
 
 	tab0 := styleDim.Render("Plugins")
 	tab1 := styleDim.Render("Themes")
-	if m.storeTab == 0 {
+	tab2 := styleDim.Render("Catalogs")
+	switch m.storeTab {
+	case 0:
 		tab0 = styleNowPlaying.Render("[Plugins]")
-	} else {
+	case 1:
 		tab1 = styleNowPlaying.Render("[Themes]")
+	default:
+		tab2 = styleNowPlaying.Render("[Catalogs]")
 	}
 
 	var lines []string
-	lines = append(lines, "  "+tab0+"  "+tab1+"   "+styleDim.Render("download with pmusic -s"))
+	lines = append(lines, "  "+tab0+"  "+tab1+"  "+tab2+"   "+styleDim.Render("download with pmusic -s"))
 	lines = append(lines, "")
 
 	boxW := min(66, m.width-4)
@@ -1726,6 +1757,8 @@ func (m *Model) renderStore() string {
 	for i, item := range visible {
 		var icon string
 		switch {
+		case item.Kind == "catalog" && item.Installed:
+			icon = styleNowPlaying.Render("✓")
 		case item.Enabled:
 			icon = styleNowPlaying.Render("✓")
 		case item.Installed:
@@ -1756,7 +1789,7 @@ func (m *Model) renderStore() string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, styleDim.Render("  Space:toggle  h/l:tabs  g/q:close"))
+	lines = append(lines, styleDim.Render("  Space:toggle/info  h/l:tabs  g/q:close"))
 
 	content := styleTitle.Render("  Plugin Store  ") + "\n\n" + strings.Join(lines, "\n")
 	box := stylePanelActive.Width(boxW).Render(content)

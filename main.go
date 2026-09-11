@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/Padrosum/pmusic/internal/catalog"
 	"github.com/Padrosum/pmusic/internal/config"
 	"github.com/Padrosum/pmusic/internal/store"
 	"github.com/Padrosum/pmusic/internal/ui"
@@ -22,6 +24,9 @@ func main() {
 		switch os.Args[1] {
 		case "-s", "--sync", "sync":
 			runSync()
+			return
+		case "-c", "--catalog", "catalog":
+			runCatalog(os.Args[2:])
 			return
 		case "-v", "--version", "version":
 			fmt.Printf("pmusic %s (commit %s)\n", version, commit)
@@ -87,12 +92,58 @@ func runSync() {
 	if err != nil {
 		fatalf("config dir: %v", err)
 	}
-	luaDir := filepath.Join(base, "pmusic", "lua")
-	fmt.Println("Syncing pmusic plugins and themes...")
-	if err := store.Sync(luaDir); err != nil {
+	fmt.Println("Syncing pmusic plugins, themes, and GenLang catalogs...")
+	if err := store.Sync(filepath.Join(base, "pmusic")); err != nil {
 		fatalf("sync: %v", err)
 	}
 	fmt.Println("Done. Open pmusic and press g to manage.")
+}
+
+func runCatalog(args []string) {
+	opt := catalog.WriteOptions{}
+	for _, arg := range args {
+		switch arg {
+		case "-h", "--help", "help":
+			fmt.Print(`Write a GenLang catalog from your local music files.
+
+  pmusic catalog
+  pmusic catalog ~/Music
+  pmusic catalog --force
+
+Writes ~/.config/pmusic/library.gl. The bundled sample and previously
+generated catalogs are replaced. A hand-edited file needs --force.
+Requires genlang on PATH only when you next open pmusic.
+`)
+			return
+		case "-f", "--force":
+			opt.Force = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				fatalf("unknown flag %s (try pmusic catalog --help)", arg)
+			}
+			if opt.MusicDir != "" {
+				fatalf("unexpected extra argument %q", arg)
+			}
+			opt.MusicDir = arg
+		}
+	}
+	if opt.MusicDir == "" {
+		cfg, err := config.Load()
+		if err != nil {
+			fatalf("config: %v", err)
+		}
+		opt.MusicDir = cfg.MusicDir
+	}
+	if opt.MusicDir == "" {
+		fatalf("no music directory; run pmusic once or pass a path")
+	}
+	fmt.Printf("Scanning %s …\n", opt.MusicDir)
+	stats, err := catalog.WriteFromScan(opt)
+	if err != nil {
+		fatalf("catalog: %v", err)
+	}
+	fmt.Printf("Wrote %d tracks, %d albums to %s\n", stats.Tracks, stats.Albums, stats.Dest)
+	fmt.Println("Open pmusic (genlang on PATH) or run :reload library.")
 }
 
 func fatalf(format string, args ...any) {

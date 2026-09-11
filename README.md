@@ -6,12 +6,41 @@ A fast, keyboard-driven music player for the terminal.
 
 ▶ Search  
 ▶ Queue  
+▶ Playlists  
 ▶ YouTube support  
 ▶ Downloads  
 ▶ Themes  
 ▶ Plugins  
 ▶ Lua scripting  
 ▶ Statistics  
+
+## Latest update (2026-09-11)
+
+Optional **[GenLang](https://github.com/Padrosum/GenLANG)** catalog: playlists
+and tags without moving files.
+
+- A `library.gl` overlay sits on top of the local library. Folders stay folders;
+  GenLang **types** say what a record *is*, **sets** are playlists and tags.
+- pmusic loads `~/.config/pmusic/library.gl` (or `<music-dir>/library.gl`) by
+  running `genlang convert … --json`, the same optional-tool pattern as
+  `yt-dlp`. There is no CGO. No file and no `genlang` → the player is unchanged.
+- Sets appear under folders in the left panel (`♫`). `j`/`k` move through both;
+  `a` queues a list. `:playlist`, `:type`, and `:inspect` (`:dyaz`) join command
+  mode. `:reload library` rescans files and reloads the overlay.
+- `pmusic catalog` writes `library.gl` from your local files (`path`, tags, albums).
+  The bundled sample is replaced; a hand-edited catalog needs `--force`.
+- Playlists need the **`genlang` CLI** on `PATH` (see
+  [Optional GenLang catalog](#optional-genlang-catalog)). `pmusic -s` only
+  downloads the sample `.gl` file; it does not install GenLang.
+- `pmusic -s` also downloads the sample catalog to `~/.config/pmusic/gl/library.gl`
+  and seeds `library.gl` when that file is missing (existing catalogs are left
+  alone).
+- Album set membership expands to tracks that reference that album. Unmatched
+  `path` values are reported instead of silently dropped.
+
+Sample file: [`examples/library.gl`](examples/library.gl). Full usage:
+[Playlists and tags (GenLang)](#playlists-and-tags-genlang).
+
 ```text
 
 
@@ -148,12 +177,22 @@ Arch Linux: `sudo pacman -S chafa` · Debian/Ubuntu: `sudo apt-get install chafa
 ### Optional GenLang catalog
 
 Playlists and tags live in a `library.gl` overlay. Local playback does not
-need it. When the file exists, pmusic runs `genlang convert … --json`
-([GenLang](https://github.com/Padrosum/GenLANG)) to load it:
+need it. When the file exists, pmusic runs `genlang convert … --json`.
+That **requires the [GenLang](https://github.com/Padrosum/GenLANG) CLI** on
+`PATH`. Build your own overlay with `pmusic catalog`. `pmusic -s` only
+downloads the sample `.gl` catalog; it does not install `genlang`.
 
 ```sh
+git clone https://github.com/Padrosum/GenLANG.git
+cd GenLANG
+cmake -S . -B build
+cmake --build build
+sudo cmake --install build
 genlang --version
 ```
+
+Needs CMake 3.16+ and a C17 compiler. Without `genlang`, pmusic keeps playing
+local files and shows a status-bar notice if `library.gl` is present.
 
 ## Usage
 
@@ -164,8 +203,11 @@ pmusic
 # Specify a directory directly
 pmusic ~/Music
 
-# Download all bundled plugins and themes to ~/.config/pmusic/lua/
+# Download bundled plugins, themes, and the sample GenLang catalog
 pmusic -s
+
+# Write ~/.config/pmusic/library.gl from your local music files
+pmusic catalog
 
 # Print build version and commit information
 pmusic --version
@@ -196,7 +238,7 @@ On first startup a setup screen appears asking for your music folder path. This 
 | `/` | Search the local music library |
 | `a` | Add the selected track or folder to the queue |
 | `u` | Open or close the play queue |
-| `g` | Open plugin / theme store |
+| `g` | Open plugin / theme / catalog store |
 | `b` | Open or close the Blackjack mini-game |
 | `c` | Open or close the cover art overlay |
 | `Ctrl+R` | Reload Lua config (hot-reload) |
@@ -287,11 +329,25 @@ pmusic looks for the overlay in this order:
 1. `~/.config/pmusic/library.gl`
 2. `<music-dir>/library.gl`
 
-If neither file exists, the player is unchanged. If a file exists, `genlang`
-must be on `PATH`; otherwise a status-bar notice explains that and local
-playback continues.
+If neither file exists, the player is unchanged. If a file exists, the
+`genlang` CLI must be on `PATH`
+([install it](#optional-genlang-catalog)); otherwise a status-bar notice
+explains that and local playback continues. `pmusic -s` does not install
+GenLang.
 
-Copy the commented sample and point `yol` at real files:
+The usual way to fill it is to scan your music directory:
+
+```sh
+pmusic catalog
+pmusic catalog --force   # replace a hand-edited library.gl
+```
+
+That writes `~/.config/pmusic/library.gl` with one `Parca` per file, `path`
+set to the real relative path, and `Album` rows from tags. The bundled sample
+and a previously generated file are replaced; anything else needs `--force`.
+
+`pmusic -s` only downloads the commented sample into `gl/library.gl` (and
+seeds `library.gl` when it is missing). You can also copy the sample yourself:
 
 ```sh
 mkdir -p ~/.config/pmusic
@@ -308,16 +364,17 @@ kume Gece
 
 veri kind_of_blue : Parca {
     baslik = "Kind of Blue"
-    yol = "Jazz/Kind of Blue.flac"
+    path = "Jazz/Kind of Blue.flac"
 }
 
 uye kind_of_blue -> Favoriler
 uye kind_of_blue -> Gece
 ```
 
-`yol` may be absolute or relative to the music directory. If it is omitted,
-pmusic matches a unique local filename/title. A set member that is an album
-expands to the tracks that reference it.
+`path` may be absolute or relative to the music directory. Do not use `yol`
+for the file; it is a GenLang keyword and the catalog will not parse. If
+`path` is omitted, pmusic matches a unique local filename/title. A set member
+that is an album expands to the tracks that reference it.
 
 Loaded sets appear at the bottom of the left panel (prefixed with `♫`).
 `j` / `k` move through folders and lists together. `a` on a list queues every
@@ -356,23 +413,28 @@ bottom-bar thumbnail and the overlay automatically.
 
 ## Plugin Store
 
-pmusic has a built-in plugin manager. Run `pmusic -s` once to download all bundled plugins and themes, then press `g` inside pmusic to enable or disable them without editing any files.
+pmusic has a built-in plugin manager. Run `pmusic -s` once to download all bundled plugins, themes, and the sample GenLang catalog, then press `g` inside pmusic to enable or disable Lua items without editing any files.
 
 Sync downloads are pinned to an immutable repository commit, size-limited, and
 SHA-256 verified before atomically replacing an installed file. Lua extensions
 are trusted code rather than a sandbox; review [the security model](docs/security.md)
-before enabling third-party code.
+before enabling third-party code. Catalog `.gl` files are data, not code.
 
 ```sh
-pmusic -s        # download plugins + themes to ~/.config/pmusic/lua/
+pmusic -s        # download plugins, themes, and GenLang catalogs
 ```
+
+Lua files go to `~/.config/pmusic/lua/`. Catalog packages go to
+`~/.config/pmusic/gl/`. If `~/.config/pmusic/library.gl` does not exist, sync
+copies the sample catalog there so playlists can load immediately. An existing
+`library.gl` is never overwritten.
 
 Inside pmusic press `g` to open the store overlay:
 
 ```
 ╭── Plugin Store ──────────────────────────────────╮
 │                                                  │
-│  [Plugins]  Themes   pmusic -s ile indir         │
+│  [Plugins]  Themes  Catalogs   pmusic -s ile indir│
 │                                                  │
 │  ✓  logger               Log played tracks...    │
 │  ✓  listen-time          Session listening...    │
@@ -380,14 +442,14 @@ Inside pmusic press `g` to open the store overlay:
 │  ✗  notify-send          [kurulu değil]          │
 │  ...                                             │
 │                                                  │
-│  Space:toggle  h/l:sekme  g/q:kapat              │
+│  Space:toggle/info  h/l:sekme  g/q:kapat         │
 ╰──────────────────────────────────────────────────╯
 ```
 
 | Icon | Meaning |
 |------|---------|
-| `✓` | Installed and **enabled** |
-| `○` | Installed but disabled |
+| `✓` | Lua: installed and **enabled**. Catalog: package file is present |
+| `○` | Lua: installed but disabled |
 | `✗` | Not installed — run `pmusic -s` first |
 
 Enable state is saved to `~/.config/pmusic/enabled.json`. Enabled plugins and themes are loaded automatically on startup and after every `Ctrl+R` hot-reload.
@@ -554,7 +616,9 @@ pmusic.register_keymap("d", "vol_down")  -- d → volume down
 - ALSA development headers and `pkg-config` for Linux source builds
 - `yt-dlp` and FFmpeg only for online search/download support
 - `chafa` only for cover art rendering
-- `genlang` only for the optional `library.gl` playlist/tag overlay
+- `genlang` CLI ([GenLang](https://github.com/Padrosum/GenLANG)) only for the
+  optional `library.gl` playlist/tag overlay; install separately, not via
+  `pmusic -s`
 
 ## Why pmusic?
 

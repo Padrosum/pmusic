@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -24,7 +25,7 @@ var storeHTTPClient = &http.Client{Timeout: 15 * time.Second}
 type Item struct {
 	Name string
 	Desc string
-	Kind string // "plugin" | "theme"
+	Kind string // "plugin" | "theme" | "catalog"
 }
 
 var Plugins = []Item{
@@ -42,6 +43,12 @@ var Themes = []Item{
 	{"catppuccin", "Catppuccin Mocha", "theme"},
 	{"tokyo-night", "Tokyo Night Storm", "theme"},
 }
+
+var Catalogs = []Item{
+	{"library", "Sample GenLang catalog (types, playlists, tags)", "catalog"},
+}
+
+const catalogRelease = "ad78fcc7c6e2e7f51ff47ca7985f4256151b5123"
 
 type Manifest struct {
 	Version int            `json:"version"`
@@ -71,46 +78,96 @@ var defaultManifest = Manifest{
 		{Name: "catppuccin", Kind: "theme", URL: immutableURL("themes/catppuccin.lua"), SHA256: "828b8d02f8dc2f633854f20bdebd94b82c19d7a6119b105f548acaed29604e71"},
 		{Name: "gruvbox", Kind: "theme", URL: immutableURL("themes/gruvbox.lua"), SHA256: "740135910a17846f702a412f831ade06f926b8ded3ede912b8b446a0c4a14698"},
 		{Name: "tokyo-night", Kind: "theme", URL: immutableURL("themes/tokyo-night.lua"), SHA256: "f24145660a1dec773fb0055e88dd9776052cba70cc136417695b7d2e3ea24a85"},
+		{Name: "library", Kind: "catalog", URL: rawURL(catalogRelease, "examples/library.gl"), SHA256: "c3face052836c187805987e226fd1f50f6bf1ef88e8aad3aab97c198ec0b081c"},
 	},
 }
 
 func immutableURL(path string) string {
-	return "https://raw.githubusercontent.com/Padrosum/pmusic/" + storeRelease + "/lua/" + path
+	return rawURL(storeRelease, "lua/"+path)
 }
 
-// Sync downloads all known plugins and themes from the GitHub repo.
-// Files are saved to luaDir/plugins/ and luaDir/themes/.
-func Sync(luaDir string) error {
-	return syncManifest(context.Background(), luaDir, defaultManifest, storeHTTPClient)
+func rawURL(commit, path string) string {
+	return "https://raw.githubusercontent.com/Padrosum/pmusic/" + commit + "/" + path
 }
 
-func syncManifest(ctx context.Context, luaDir string, manifest Manifest, client *http.Client) error {
+// Sync downloads bundled plugins, themes, and GenLang catalog files.
+// configDir is ~/.config/pmusic. Lua files land under lua/; catalogs under gl/.
+// An existing library.gl is never overwritten; it is seeded only when missing.
+func Sync(configDir string) error {
+	return syncManifest(context.Background(), configDir, defaultManifest, storeHTTPClient)
+}
+
+func syncManifest(ctx context.Context, configDir string, manifest Manifest, client *http.Client) error {
 	if manifest.Version != 1 || strings.TrimSpace(manifest.Release) == "" {
 		return fmt.Errorf("unsupported or incomplete store manifest")
 	}
 	fmt.Printf("Store release: %s\n", manifest.Release)
+	var seededCatalog bool
 	for _, file := range manifest.Files {
-		if file.Kind != "plugin" && file.Kind != "theme" {
-			return fmt.Errorf("%s: invalid kind %q", file.Name, file.Kind)
-		}
-		destination := file.Destination
-		if destination == "" {
-			subdir := file.Kind + "s"
-			destination = filepath.Join(subdir, file.Name+".lua")
-		}
-		if filepath.IsAbs(destination) || strings.Contains(filepath.Clean(destination), "..") {
-			return fmt.Errorf("%s: unsafe destination", file.Name)
+		destination, err := destinationFor(file)
+		if err != nil {
+			return err
 		}
 		data, err := fetchVerified(ctx, client, file)
 		if err != nil {
 			return fmt.Errorf("%s: %w", file.Name, err)
 		}
-		dest := filepath.Join(luaDir, destination)
+		dest := filepath.Join(configDir, destination)
 		if err := persistence.WriteFileAtomic(dest, data, persistence.PrivateFileMode); err != nil {
 			return fmt.Errorf("%s: %w", file.Name, err)
 		}
 		fmt.Printf("  ✓ %s (%s)\n", destination, file.URL)
+		if file.Kind == "catalog" && file.Name == "library" {
+			seededCatalog = true
+		}
 	}
+	if seededCatalog {
+		if err := seedLibraryGL(configDir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func destinationFor(file ManifestFile) (string, error) {
+	destination := file.Destination
+	if destination == "" {
+		switch file.Kind {
+		case "plugin":
+			destination = filepath.Join("lua", "plugins", file.Name+".lua")
+		case "theme":
+			destination = filepath.Join("lua", "themes", file.Name+".lua")
+		case "catalog":
+			destination = filepath.Join("gl", file.Name+".gl")
+		default:
+			return "", fmt.Errorf("%s: invalid kind %q", file.Name, file.Kind)
+		}
+	} else if file.Kind != "plugin" && file.Kind != "theme" && file.Kind != "catalog" {
+		return "", fmt.Errorf("%s: invalid kind %q", file.Name, file.Kind)
+	}
+	if filepath.IsAbs(destination) || strings.Contains(filepath.Clean(destination), "..") {
+		return "", fmt.Errorf("%s: unsafe destination", file.Name)
+	}
+	return destination, nil
+}
+
+func seedLibraryGL(configDir string) error {
+	dest := filepath.Join(configDir, "library.gl")
+	if _, err := os.Stat(dest); err == nil {
+		fmt.Println("  · library.gl already present, left unchanged")
+		return nil
+	} else if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("library.gl: %w", err)
+	}
+	src := filepath.Join(configDir, "gl", "library.gl")
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("seed library.gl: %w", err)
+	}
+	if err := persistence.WriteFileAtomic(dest, data, persistence.PrivateFileMode); err != nil {
+		return fmt.Errorf("library.gl: %w", err)
+	}
+	fmt.Println("  ✓ library.gl (seeded from gl/library.gl)")
 	return nil
 }
 

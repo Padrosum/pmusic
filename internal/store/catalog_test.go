@@ -29,7 +29,7 @@ func syncFixture(t *testing.T, handler http.HandlerFunc, expected []byte) (strin
 	t.Helper()
 	server := httptest.NewServer(handler)
 	dir := t.TempDir()
-	dest := filepath.Join(dir, "plugins", "example.lua")
+	dest := filepath.Join(dir, "lua", "plugins", "example.lua")
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func syncFixture(t *testing.T, handler http.HandlerFunc, expected []byte) (strin
 
 func assertExistingPlugin(t *testing.T, dir string) {
 	t.Helper()
-	got, err := os.ReadFile(filepath.Join(dir, "plugins", "example.lua"))
+	got, err := os.ReadFile(filepath.Join(dir, "lua", "plugins", "example.lua"))
 	if err != nil || string(got) != "existing" {
 		t.Fatalf("existing plugin = %q, err=%v", got, err)
 	}
@@ -113,7 +113,7 @@ func TestStoreSyncInstallsVerifiedFileAtomically(t *testing.T) {
 	if err := syncManifest(context.Background(), dir, manifest, client); err != nil {
 		t.Fatal(err)
 	}
-	dest := filepath.Join(dir, "plugins", "example.lua")
+	dest := filepath.Join(dir, "lua", "plugins", "example.lua")
 	got, err := os.ReadFile(dest)
 	if err != nil || string(got) != string(body) {
 		t.Fatalf("installed = %q, err=%v", got, err)
@@ -121,5 +121,88 @@ func TestStoreSyncInstallsVerifiedFileAtomically(t *testing.T) {
 	info, err := os.Stat(dest)
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("mode=%v err=%v", info.Mode().Perm(), err)
+	}
+}
+
+func TestStoreSyncInstallsCatalogAndSeedsLibrary(t *testing.T) {
+	body := []byte("cins T\n")
+	hash := sha256.Sum256(body)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+	dir := t.TempDir()
+	manifest := Manifest{
+		Version: 1,
+		Release: "test-release",
+		Files: []ManifestFile{{
+			Name: "library", Kind: "catalog", URL: server.URL,
+			SHA256: fmt.Sprintf("%x", hash[:]),
+		}},
+	}
+	if err := syncManifest(context.Background(), dir, manifest, server.Client()); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{filepath.Join("gl", "library.gl"), "library.gl"} {
+		got, err := os.ReadFile(filepath.Join(dir, rel))
+		if err != nil || string(got) != string(body) {
+			t.Fatalf("%s = %q err=%v", rel, got, err)
+		}
+	}
+}
+
+func TestStoreSyncPreservesExistingLibraryGL(t *testing.T) {
+	body := []byte("cins T\n")
+	hash := sha256.Sum256(body)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+	dir := t.TempDir()
+	existing := filepath.Join(dir, "library.gl")
+	if err := os.WriteFile(existing, []byte("veri mine { x = 1 }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := Manifest{
+		Version: 1,
+		Release: "test-release",
+		Files: []ManifestFile{{
+			Name: "library", Kind: "catalog", URL: server.URL,
+			SHA256: fmt.Sprintf("%x", hash[:]),
+		}},
+	}
+	if err := syncManifest(context.Background(), dir, manifest, server.Client()); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(existing)
+	if err != nil || string(got) != "veri mine { x = 1 }\n" {
+		t.Fatalf("library.gl overwritten: %q err=%v", got, err)
+	}
+	pkg, err := os.ReadFile(filepath.Join(dir, "gl", "library.gl"))
+	if err != nil || string(pkg) != string(body) {
+		t.Fatalf("package = %q err=%v", pkg, err)
+	}
+}
+
+func TestStoreSyncRejectsUnknownKind(t *testing.T) {
+	dir := t.TempDir()
+	err := syncManifest(context.Background(), dir, Manifest{
+		Version: 1,
+		Release: "test-release",
+		Files:   []ManifestFile{{Name: "x", Kind: "exploit", URL: "http://example.invalid", SHA256: strings.Repeat("ab", 32)}},
+	}, http.DefaultClient)
+	if err == nil || !strings.Contains(err.Error(), "invalid kind") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestDestinationForCatalog(t *testing.T) {
+	got, err := destinationFor(ManifestFile{Name: "library", Kind: "catalog"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join("gl", "library.gl")
+	if got != want {
+		t.Fatalf("destination = %q, want %q", got, want)
 	}
 }

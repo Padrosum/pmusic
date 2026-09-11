@@ -74,10 +74,7 @@ func (c *CLIConverter) ConvertJSON(ctx context.Context, path string) ([]byte, er
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		detail := strings.TrimSpace(stderr.String())
-		if line, _, ok := strings.Cut(detail, "\n"); ok {
-			detail = line
-		}
+		detail := genlangErrorDetail(stderr.String())
 		if detail != "" {
 			return nil, fmt.Errorf("genlang: %s", detail)
 		}
@@ -87,6 +84,25 @@ func (c *CLIConverter) ConvertJSON(ctx context.Context, path string) ([]byte, er
 		return nil, fmt.Errorf("genlang json exceeded %d bytes", maxBytes)
 	}
 	return stdout.Bytes(), nil
+}
+
+func genlangErrorDetail(stderr string) string {
+	stderr = strings.TrimSpace(stderr)
+	if stderr == "" {
+		return ""
+	}
+	var parts []string
+	for _, line := range strings.Split(stderr, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "|") {
+			continue
+		}
+		parts = append(parts, line)
+		if len(parts) == 2 {
+			break
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func validateGLPath(path string) error {
