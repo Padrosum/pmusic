@@ -48,7 +48,7 @@ var Catalogs = []Item{
 	{"library", "Sample GenLang catalog (types, playlists, tags)", "catalog"},
 }
 
-const catalogRelease = "ad78fcc7c6e2e7f51ff47ca7985f4256151b5123"
+const catalogRelease = "23bb79b9b2abb1a0a3d9f7edc3ee0c247503b386"
 
 type Manifest struct {
 	Version int            `json:"version"`
@@ -78,7 +78,7 @@ var defaultManifest = Manifest{
 		{Name: "catppuccin", Kind: "theme", URL: immutableURL("themes/catppuccin.lua"), SHA256: "828b8d02f8dc2f633854f20bdebd94b82c19d7a6119b105f548acaed29604e71"},
 		{Name: "gruvbox", Kind: "theme", URL: immutableURL("themes/gruvbox.lua"), SHA256: "740135910a17846f702a412f831ade06f926b8ded3ede912b8b446a0c4a14698"},
 		{Name: "tokyo-night", Kind: "theme", URL: immutableURL("themes/tokyo-night.lua"), SHA256: "f24145660a1dec773fb0055e88dd9776052cba70cc136417695b7d2e3ea24a85"},
-		{Name: "library", Kind: "catalog", URL: rawURL(catalogRelease, "examples/library.gl"), SHA256: "c3face052836c187805987e226fd1f50f6bf1ef88e8aad3aab97c198ec0b081c"},
+		{Name: "library", Kind: "catalog", URL: rawURL(catalogRelease, "examples/library.gl"), SHA256: "4c9e2ad1cfb993e5aba0bcdf0e081f938d87081f301eea88120c89a5912a2946"},
 	},
 }
 

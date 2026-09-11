@@ -27,8 +27,8 @@
 - `pmusic -s` Lua eklenti ve temalarının yanında GenLang `.gl` paketlerini de
   indiriyor. Dosyalar `~/.config/pmusic/gl/` altına, aynı pin / SHA-256 /
   boyut sınırı / atomik yazma kurallarıyla kurulur.
-- İlk paket örnek katalog: `examples/library.gl` (commit `ad78fcc`). Her
-  senkron `~/.config/pmusic/gl/library.gl` dosyasını günceller.
+- İlk paket örnek katalog: `examples/library.gl` (commit `23bb79b`, `path`
+  alanı). Her senkron `~/.config/pmusic/gl/library.gl` dosyasını günceller.
 - Kullanıcının `~/.config/pmusic/library.gl` dosyası yoksa örnek oraya
   kopyalanır; varsa dokunulmaz.
 - Store overlay (`g`) üçüncü sekme: Catalogs. Space Lua enable/disable değil,
