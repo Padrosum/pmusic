@@ -1,0 +1,27 @@
+pkgbase = pmusic-git
+	pkgdesc = A fast, keyboard-driven music player for the terminal
+	pkgver = r37.g973a441
+	pkgrel = 1
+	url = https://github.com/Padrosum/pmusic
+	arch = x86_64
+	arch = aarch64
+	license = GPL-3.0-only
+	makedepends = git
+	makedepends = go
+	makedepends = pkgconf
+	depends = alsa-lib
+	depends = glibc
+	optdepends = yt-dlp: YouTube search and downloads
+	optdepends = ffmpeg: audio conversion for yt-dlp downloads
+	optdepends = chafa: cover art in the terminal
+	optdepends = genlang: GenLang playlists and tags
+	optdepends = dbus: inhibit the screen saver during playback
+	provides = pmusic
+	conflicts = pmusic
+	conflicts = pmusic-bin
+	options = !debug
+	options = !strip
+	source = pmusic-git::git+https://github.com/Padrosum/pmusic.git
+	sha256sums = SKIP
+
+pkgname = pmusic-git

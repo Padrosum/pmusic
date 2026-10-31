@@ -114,6 +114,20 @@ ppd install pmusic
 ppd installs the repository-root binary into `/usr/local/bin`. Use `ppd update`
 to update packages managed by ppd.
 
+### Arch Linux (PKGBUILD)
+
+The `pmusic-git` package in `packaging/arch` builds the latest `main` branch:
+
+```sh
+git clone https://github.com/Padrosum/pmusic.git
+cd pmusic/packaging/arch
+makepkg -si
+```
+
+`makepkg` installs the Go and ALSA build requirements as needed. Optional
+features can be enabled by installing `yt-dlp`, `ffmpeg`, `chafa`, `genlang`,
+or `dbus`. The package is not published to the AUR yet.
+
 ### With Go
 
 This method works on other operating systems and architectures supported by

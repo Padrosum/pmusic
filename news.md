@@ -1,5 +1,14 @@
 # pmusic Haberler ve Değişiklik Notları
 
+## 2026-10-31 — Arch Linux PKGBUILD
+
+- `packaging/arch/PKGBUILD` eklendi. Depoda henüz sürüm etiketi olmadığı için
+  paket `pmusic-git` adıyla `main` dalını takip ediyor.
+- Paket Go ve ALSA (`alsa-lib`) ile derleniyor; `yt-dlp`, `ffmpeg`, `chafa`,
+  `genlang` ve `dbus` isteğe bağlı bağımlılıklar olarak tanımlandı.
+- `makepkg` ile paketleme, testler ve `--version` çıktısı doğrulandı.
+  `.SRCINFO` üretildi; AUR'a gönderim için `packaging/arch` dizini hazır.
+
 ## 2026-09-11 — pmusic catalog: arşivden library.gl
 
 - `pmusic catalog` (alias `-c` / `--catalog`) yerel müzik dizinini tarar ve

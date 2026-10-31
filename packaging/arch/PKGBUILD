@@ -1,0 +1,70 @@
+# Maintainer: Padros <padrosum@proton.me>
+#
+# pmusic has no tagged stable release yet (only the rolling `edge` tag), so
+# this package follows the latest commit on main. Switch to a release tarball
+# and drop the `-git` suffix once a version tag exists.
+
+pkgname=pmusic-git
+pkgver=r37.g973a441
+pkgrel=1
+pkgdesc='A fast, keyboard-driven music player for the terminal'
+arch=('x86_64' 'aarch64')
+url='https://github.com/Padrosum/pmusic'
+license=('GPL-3.0-only')
+depends=('alsa-lib' 'glibc')
+makedepends=('git' 'go' 'pkgconf')
+optdepends=(
+  'yt-dlp: YouTube search and downloads'
+  'ffmpeg: audio conversion for yt-dlp downloads'
+  'chafa: cover art in the terminal'
+  'genlang: GenLang playlists and tags'
+  'dbus: inhibit the screen saver during playback'
+)
+provides=('pmusic')
+conflicts=('pmusic' 'pmusic-bin')
+# The binary is already built with -s -w; a separate debug package would be empty.
+options=('!debug' '!strip')
+source=("$pkgname::git+${url}.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "$pkgname"
+  printf 'r%s.g%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+prepare() {
+  cd "$pkgname"
+  go mod download
+}
+
+build() {
+  cd "$pkgname"
+
+  export CGO_ENABLED=1
+
+  go build -mod=readonly -trimpath \
+    -ldflags="-s -w -X main.version=${pkgver} -X main.commit=$(git rev-parse HEAD)" \
+    -o pmusic .
+}
+
+check() {
+  cd "$pkgname"
+  go test -count=1 ./...
+}
+
+package() {
+  cd "$pkgname"
+
+  install -Dm755 pmusic "$pkgdir/usr/bin/pmusic"
+
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 news.md "$pkgdir/usr/share/doc/$pkgname/news.md"
+  install -Dm644 docs/security.md "$pkgdir/usr/share/doc/$pkgname/security.md"
+  install -Dm644 lua/info.md "$pkgdir/usr/share/doc/$pkgname/lua-api.md"
+  install -Dm644 examples/library.gl "$pkgdir/usr/share/doc/$pkgname/examples/library.gl"
+
+  install -d "$pkgdir/usr/share/doc/$pkgname/examples/lua"
+  cp -r lua/init.lua lua/plugins lua/themes \
+    "$pkgdir/usr/share/doc/$pkgname/examples/lua/"
+}
